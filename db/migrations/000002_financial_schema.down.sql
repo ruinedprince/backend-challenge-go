@@ -1,0 +1,12 @@
+DROP TABLE IF EXISTS outbox_events;
+DROP TABLE IF EXISTS inbox_messages;
+DROP TRIGGER IF EXISTS wallet_ledger_entries_wallet_identity ON wallet_ledger_entries;
+DROP FUNCTION IF EXISTS validate_ledger_wallet_identity();
+DROP TRIGGER IF EXISTS wallet_ledger_entries_no_delete ON wallet_ledger_entries;
+DROP TRIGGER IF EXISTS wallet_ledger_entries_no_update ON wallet_ledger_entries;
+DROP FUNCTION IF EXISTS reject_wallet_ledger_mutation();
+DROP TABLE IF EXISTS wallet_ledger_entries;
+DROP TRIGGER IF EXISTS wager_transactions_wallet_identity ON wager_transactions;
+DROP FUNCTION IF EXISTS validate_transaction_wallet_identity();
+DROP TABLE IF EXISTS wager_transactions;
+DROP TABLE IF EXISTS wallets;
