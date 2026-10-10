@@ -67,3 +67,24 @@ append-only. Inbox e outbox já estão persistidos no schema: a primeira dedupli
 `(consumer_name, message_id)` e a segunda registra eventos pendentes com tentativas e
 agendamento de retry. O caso de uso do BCG-5 gravará carteira, transação, ledger e
 outbox na mesma transação SQL.
+
+## Processamento financeiro e concorrência
+
+`internal/core.Processor` é o caso de uso compartilhado por futuras entradas HTTP e
+SQS. Para cada pedido, ele gera SHA-256 de uma estrutura JSON canônica com os campos de
+negócio (sem chave de idempotência nem metadados de transporte), abre uma transação SQL e
+faz `SELECT ... FOR UPDATE` apenas na carteira solicitada. Assim, duas carteiras
+independentes não se bloqueiam, enquanto débitos concorrentes da mesma carteira avançam
+em série.
+
+A mesma transação SQL consulta os replays persistidos, cria a transação, atualiza saldo e
+versão, adiciona o ledger e grava eventos na outbox. Se uma aposta não tiver saldo, ela é
+registrada como `REJECTED` com `INSUFFICIENT_FUNDS`, sem ledger ou alteração de saldo. Um
+reenvio com chave e hash iguais devolve exatamente o saldo/resultados gravados; uma mesma
+chave com conteúdo diferente é conflito. Além do lock, o `UPDATE` usa a versão anterior
+na cláusula `WHERE` como proteção contra atualização perdida.
+
+No BCG-5, o fluxo síncrono suporta `BET`, `WIN` e `LOSS`. `REFUND` e `ROLLBACK` exigem a
+resolução persistida da referência e entram no BCG-9. O teste de integração executa duas
+`BET` concorrentes de 80.00 contra saldo 100.00: uma é processada, a outra rejeitada, o
+saldo final é 20.00 e há somente um débito no ledger.
