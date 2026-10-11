@@ -2,9 +2,7 @@ package core
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -149,26 +147,6 @@ func finishTransaction(ctx context.Context, tx pgx.Tx, transaction *domain.Wager
     `, transaction.State(), nullableFailureCode(transaction.FailureCode()), balance.MinorUnits(), walletVersion, transaction.UpdatedAt(), transaction.Input().ID)
 	if err != nil {
 		return fmt.Errorf("finish transaction: %w", err)
-	}
-	return nil
-}
-
-func insertOutboxEvent(ctx context.Context, tx pgx.Tx, aggregateID, eventType string, input domain.ExternalTransactionInput, occurredAt time.Time) error {
-	payload, err := json.Marshal(struct {
-		TransactionID string                 `json:"transactionId"`
-		ProviderID    string                 `json:"providerId"`
-		WalletID      string                 `json:"walletId"`
-		Type          domain.TransactionType `json:"type"`
-	}{aggregateID, input.ProviderID, input.WalletID, input.Type})
-	if err != nil {
-		return fmt.Errorf("marshal outbox payload: %w", err)
-	}
-	_, err = tx.Exec(ctx, `
-        INSERT INTO outbox_events (aggregate_id, event_type, payload, occurred_at)
-        VALUES ($1, $2, $3, $4)
-    `, aggregateID, eventType, payload, occurredAt)
-	if err != nil {
-		return fmt.Errorf("insert outbox event: %w", err)
 	}
 	return nil
 }

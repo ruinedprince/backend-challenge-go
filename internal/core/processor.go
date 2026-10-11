@@ -164,7 +164,7 @@ func (p *Processor) apply(ctx context.Context, tx pgx.Tx, wallet *domain.Wallet,
 		if err := finishTransaction(ctx, tx, transaction, wallet.Snapshot().Balance, wallet.Snapshot().Version); err != nil {
 			return TransactionResult{}, err
 		}
-		if err := insertOutboxEvent(ctx, tx, input.ID, "WagerTransactionRejected", input, now); err != nil {
+		if err := insertWagerOutboxEvent(ctx, tx, "WagerTransactionRejected", transaction, now); err != nil {
 			return TransactionResult{}, err
 		}
 		return TransactionResult{TransactionID: input.ID, Status: transaction.State(), Balance: wallet.Snapshot().Balance, FailureCode: transaction.FailureCode()}, nil
@@ -184,11 +184,11 @@ func (p *Processor) apply(ctx context.Context, tx pgx.Tx, wallet *domain.Wallet,
 	if err := finishTransaction(ctx, tx, transaction, wallet.Snapshot().Balance, wallet.Snapshot().Version); err != nil {
 		return TransactionResult{}, err
 	}
-	if err := insertOutboxEvent(ctx, tx, input.ID, "WagerTransactionProcessed", input, now); err != nil {
+	if err := insertWagerOutboxEvent(ctx, tx, "WagerTransactionProcessed", transaction, now); err != nil {
 		return TransactionResult{}, err
 	}
 	if hasLedger {
-		if err := insertOutboxEvent(ctx, tx, input.ID, "WalletBalanceChanged", input, now); err != nil {
+		if err := insertWalletBalanceChangedOutboxEvent(ctx, tx, entry, wallet.Snapshot().Version, input.ExternalTransactionID, now); err != nil {
 			return TransactionResult{}, err
 		}
 	}

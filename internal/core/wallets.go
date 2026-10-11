@@ -61,7 +61,7 @@ func (p *Processor) OpenWallet(ctx context.Context, providerID, playerID string,
         `, walletID, transactionID, initial.MinorUnits(), initial.Currency(), now); err != nil {
 			return WalletView{}, fmt.Errorf("record opening ledger: %w", err)
 		}
-		if err = insertOpeningOutbox(ctx, tx, transactionID, walletID, now); err != nil {
+		if err = insertOpeningOutbox(ctx, tx, transactionID, walletID, playerID, providerID, initial, now); err != nil {
 			return WalletView{}, err
 		}
 	}
@@ -135,12 +135,18 @@ func (p *Processor) Reconcile(ctx context.Context, providerID, walletID string) 
 	return wallet, money, count, err
 }
 
-func insertOpeningOutbox(ctx context.Context, tx pgx.Tx, transactionID, walletID string, now time.Time) error {
-	payload, _ := json.Marshal(map[string]string{"transactionId": transactionID, "walletId": walletID})
-	for _, eventType := range []string{"WagerTransactionProcessed", "WalletBalanceChanged"} {
-		if _, err := tx.Exec(ctx, `INSERT INTO outbox_events (aggregate_id,event_type,payload,occurred_at) VALUES ($1,$2,$3,$4)`, transactionID, eventType, payload, now); err != nil {
-			return fmt.Errorf("insert opening outbox: %w", err)
-		}
+func insertOpeningOutbox(ctx context.Context, tx pgx.Tx, transactionID, walletID, playerID, providerID string, initial domain.Money, now time.Time) error {
+	payload, err := json.Marshal(eventPayload{CorrelationID: transactionID, Data: wagerEventData{TransactionID: transactionID, ProviderID: providerID, WalletID: walletID, PlayerID: playerID, Type: domain.TransactionOpening, State: domain.TransactionProcessed, Money: initial}})
+	if err != nil {
+		return fmt.Errorf("marshal opening outbox payload: %w", err)
 	}
-	return nil
+	if err := insertOutboxRecord(ctx, tx, transactionID, "WagerTransactionProcessed", payload, now); err != nil {
+		return err
+	}
+	zero, _ := domain.NewMoney(0, initial.Currency())
+	entry, err := domain.NewWalletLedgerEntry(walletID, transactionID, domain.LedgerCredit, initial, zero, initial, now)
+	if err != nil {
+		return fmt.Errorf("build opening ledger event: %w", err)
+	}
+	return insertWalletBalanceChangedOutboxEvent(ctx, tx, entry, 1, transactionID, now)
 }

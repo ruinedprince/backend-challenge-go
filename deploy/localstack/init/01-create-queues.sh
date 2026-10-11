@@ -23,3 +23,8 @@ EOF
 awslocal sqs create-queue \
   --queue-name wager-transactions.fifo \
   --attributes file:///tmp/wager-transactions-attributes.json
+
+# Destination for integration events emitted from the transactional outbox.
+awslocal sqs create-queue \
+  --queue-name wager-events.fifo \
+  --attributes FifoQueue=true,ContentBasedDeduplication=false

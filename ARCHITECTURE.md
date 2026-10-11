@@ -110,3 +110,17 @@ A mensagem só é removida da SQS após o commit; falhas ficam invisíveis por 3
 tentadas novamente, chegando à DLQ após cinco recebimentos. Reentrega com o mesmo `messageId`
 é um no-op; o mesmo ID com hash diferente é conflito auditável. No encerramento, o worker para
 de buscar mensagens e aguarda o polling ativo terminar.
+
+## Publicação pela outbox
+
+Cada evento recebe um snapshot JSON tipado ainda dentro da transação financeira: o evento da
+transação contém sua identidade e estado; `WalletBalanceChanged` também contém direção, valor,
+saldo antes/depois e versão resultante da carteira. Um publisher separado reivindica lotes com
+`FOR UPDATE SKIP LOCKED`, portanto duas instâncias não enviam o mesmo registro enquanto ambas
+estão saudáveis. A reivindicação expira após 30 segundos: se a instância cair, outra pode assumir
+o trabalho. Falhas de envio liberam o registro com backoff exponencial, limitado a cinco minutos.
+
+O destino é `wager-events.fifo`. O envelope transportado contém `eventId`, tipo, agregado,
+correlação, instante UTC, versão e dados. `MessageGroupId` é o agregado e
+`MessageDeduplicationId` é o próprio `eventId`. Se a aplicação cair depois de enviar à SQS e antes
+de registrar `published_at`, ela republica o mesmo `eventId`; consumidores devem deduplicá-lo.

@@ -26,10 +26,12 @@ var Module = fx.Module("application",
 	fx.Provide(newOIDCVerifier),
 	fx.Provide(NewAPI),
 	fx.Provide(NewSQSConsumer),
+	fx.Provide(NewOutboxPublisher),
 	fx.Provide(NewHTTPServer),
 	fx.Invoke(RegisterDependencies),
 	fx.Invoke(RegisterHTTPServer),
 	fx.Invoke(RegisterSQSConsumer),
+	fx.Invoke(RegisterOutboxPublisher),
 )
 
 func newOIDCVerifier(config Config) *auth.Verifier {
