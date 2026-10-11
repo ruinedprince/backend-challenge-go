@@ -11,6 +11,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/fx"
+
+	"github.com/ruinedprince/backend-challenge-go/internal/auth"
+	"github.com/ruinedprince/backend-challenge-go/internal/core"
 )
 
 // Module is the framework boundary. Domain packages will not import Fx.
@@ -19,10 +22,17 @@ var Module = fx.Module("application",
 	fx.Provide(NewPostgresPool),
 	fx.Provide(NewSQSClient),
 	fx.Provide(NewReadiness),
+	fx.Provide(core.NewProcessor),
+	fx.Provide(newOIDCVerifier),
+	fx.Provide(NewAPI),
 	fx.Provide(NewHTTPServer),
 	fx.Invoke(RegisterDependencies),
 	fx.Invoke(RegisterHTTPServer),
 )
+
+func newOIDCVerifier(config Config) *auth.Verifier {
+	return auth.NewVerifier(config.KeycloakIssuer)
+}
 
 func NewPostgresPool(config Config) (*pgxpool.Pool, error) {
 	poolConfig, err := pgxpool.ParseConfig(config.DatabaseURL)

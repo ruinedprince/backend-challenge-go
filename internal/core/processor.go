@@ -22,6 +22,7 @@ var (
 	ErrIdempotencyConflict        = errors.New("idempotency key conflicts with a different request")
 	ErrExternalIdentityConflict   = errors.New("external transaction identity already exists with a different idempotency key")
 	ErrUnsupportedTransactionType = errors.New("transaction type is not yet processable")
+	ErrProviderWalletForbidden    = errors.New("provider cannot access this wallet")
 )
 
 type TransactionRequest struct {
@@ -76,6 +77,9 @@ func (p *Processor) Process(ctx context.Context, request TransactionRequest) (Tr
 	walletSnapshot := wallet.Snapshot()
 	if walletSnapshot.PlayerID != request.PlayerID || walletSnapshot.Currency != request.Money.Currency() {
 		return TransactionResult{}, fmt.Errorf("%w: request does not match wallet", domain.ErrInvalidTransaction)
+	}
+	if err := requireWalletAccess(ctx, tx, request.WalletID, request.ProviderID); err != nil {
+		return TransactionResult{}, err
 	}
 
 	if previous, found, err := findByIdempotencyKey(ctx, tx, request.ProviderID, request.IdempotencyKey); err != nil {

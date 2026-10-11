@@ -18,10 +18,17 @@ type HTTPServer struct {
 	logger          *slog.Logger
 }
 
-func NewHTTPServer(config Config, logger *slog.Logger, readiness *Readiness) *HTTPServer {
+func NewHTTPServer(config Config, logger *slog.Logger, readiness *Readiness, api *API) *HTTPServer {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", healthLive)
 	mux.HandleFunc("GET /health/ready", readiness.Handler)
+	mux.HandleFunc("POST /wagering/transactions", api.CreateTransaction)
+	mux.HandleFunc("GET /wagering/transactions/{transactionId}", api.GetTransaction)
+	mux.HandleFunc("GET /providers/{providerId}/wagering/transactions/{externalTransactionId}", api.GetExternalTransaction)
+	mux.HandleFunc("POST /wallets", api.OpenWallet)
+	mux.HandleFunc("GET /wallets/{walletId}", api.GetWallet)
+	mux.HandleFunc("GET /wallets/{walletId}/ledger", api.GetLedger)
+	mux.HandleFunc("POST /wallets/{walletId}/reconciliation", api.ReconcileWallet)
 
 	return &HTTPServer{
 		server:          &http.Server{Addr: config.HTTPAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second},

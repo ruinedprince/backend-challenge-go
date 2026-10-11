@@ -88,3 +88,17 @@ No BCG-5, o fluxo síncrono suporta `BET`, `WIN` e `LOSS`. `REFUND` e `ROLLBACK`
 resolução persistida da referência e entram no BCG-9. O teste de integração executa duas
 `BET` concorrentes de 80.00 contra saldo 100.00: uma é processada, a outra rejeitada, o
 saldo final é 20.00 e há somente um débito no ledger.
+
+## HTTP, OAuth/OIDC e isolamento por provedor
+
+O Keycloak emite tokens de client credentials para cada provedor. A API descobre as chaves
+públicas no issuer OIDC configurado, verifica assinatura, issuer e expiração do bearer token
+e extrai o cliente autorizado da claim assinada `azp`. O `providerId` enviado no corpo ou
+na rota precisa ser igual ao `azp`; portanto ele não é confiado apenas porque veio no JSON.
+
+`POST /wallets`, leituras de carteira/ledger/reconciliação e os endpoints de transação exigem
+bearer token. A tabela `wallet_provider_access` vincula uma nova carteira ao provedor que a
+abriu e o núcleo financeiro verifica esse vínculo dentro da própria transação antes de mexer
+no saldo. Assim, conhecer um UUID de carteira não concede acesso a outro provedor. A abertura
+positiva registra `OPENING`, crédito no ledger e dois eventos de outbox no mesmo commit; uma
+abertura com saldo zero não cria movimento financeiro.

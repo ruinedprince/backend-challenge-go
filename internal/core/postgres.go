@@ -34,6 +34,21 @@ func lockWallet(ctx context.Context, tx pgx.Tx, walletID string) (*domain.Wallet
 	return domain.RehydrateWallet(snapshot)
 }
 
+func requireWalletAccess(ctx context.Context, tx pgx.Tx, walletID, providerID string) error {
+	var allowed bool
+	if err := tx.QueryRow(ctx, `
+        SELECT EXISTS (
+            SELECT 1 FROM wallet_provider_access WHERE wallet_id = $1 AND provider_id = $2
+        )
+    `, walletID, providerID).Scan(&allowed); err != nil {
+		return fmt.Errorf("check wallet provider access: %w", err)
+	}
+	if !allowed {
+		return ErrProviderWalletForbidden
+	}
+	return nil
+}
+
 func findByIdempotencyKey(ctx context.Context, tx pgx.Tx, providerID, key string) (persistedTransaction, bool, error) {
 	return findPersistedTransaction(ctx, tx, `
         SELECT id, payload_hash, state, result_balance_minor_units, currency, failure_code

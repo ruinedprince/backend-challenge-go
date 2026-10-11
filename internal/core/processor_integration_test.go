@@ -36,6 +36,9 @@ func TestProcessorConcurrentBetsAndReplay(t *testing.T) {
     `, walletID, playerID); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO wallet_provider_access (wallet_id, provider_id) VALUES ($1, 'provider-a')`, walletID); err != nil {
+		t.Fatal(err)
+	}
 
 	processor := NewProcessor(pool)
 	amount, err := domain.ParseExternalMoney("80.00", "BRL")
