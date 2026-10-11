@@ -472,3 +472,24 @@ unitários, detector de corrida, análise estática e integração. `make integr
 migrations e executa, em sequência, os cenários com PostgreSQL e LocalStack reais. Eles incluem
 50 replays concorrentes (um único lançamento), reentrega da inbox, referência pendente/expirada
 e três publishers disputando eventos da outbox, incluindo recuperação de uma reivindicação vencida.
+
+## Executando a solução
+
+Pré-requisito: Docker Desktop com Compose. A configuração local segura está em `.env.example`;
+ela contém somente credenciais de desenvolvimento para PostgreSQL, Keycloak e LocalStack.
+
+```sh
+docker compose up -d --build
+docker compose --profile tools run --rm migrate \
+  -path /migrations \
+  -database "postgres://challenge:challenge@postgres:5432/challenge?sslmode=disable" up
+curl http://localhost:8080/health/ready
+```
+
+O Keycloak é exposto em `http://localhost:8081`, a API em `http://localhost:8080`
+e o LocalStack em `http://localhost:4566`. O realm importado tem o cliente de demonstração
+`provider-a`, com secret `provider-a-secret`; ele existe apenas para o ambiente local.
+
+O roteiro completo, incluindo token OAuth, abertura de carteira, aposta, replay e
+reconciliação, está em [DEMO.md](DEMO.md). Para encerrar o ambiente, execute
+`docker compose down`.

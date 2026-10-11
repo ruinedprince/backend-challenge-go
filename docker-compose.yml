@@ -35,6 +35,8 @@ services:
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      # The API validates this internal issuer; exposing 8081 does not change it.
+      KC_HOSTNAME: http://keycloak:8080
     ports:
       - "8081:8080"
     volumes:
