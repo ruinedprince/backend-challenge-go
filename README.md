@@ -464,3 +464,11 @@ go vet ./...
 Documente separadamente como preparar as dependências dos testes e executar integração, múltiplas instâncias e simulações de falha. Se utilizar build tags, informe os comandos correspondentes.
 
 Entregue código formatado com `gofmt` e dependências reproduzíveis.
+
+## Verificação local
+
+Após subir o ambiente com `docker compose up -d`, use `make verify` para executar os testes
+unitários, detector de corrida, análise estática e integração. `make integration-test` aplica as
+migrations e executa, em sequência, os cenários com PostgreSQL e LocalStack reais. Eles incluem
+50 replays concorrentes (um único lançamento), reentrega da inbox, referência pendente/expirada
+e três publishers disputando eventos da outbox, incluindo recuperação de uma reivindicação vencida.
