@@ -102,3 +102,11 @@ abriu e o núcleo financeiro verifica esse vínculo dentro da própria transaç�
 no saldo. Assim, conhecer um UUID de carteira não concede acesso a outro provedor. A abertura
 positiva registra `OPENING`, crédito no ledger e dois eventos de outbox no mesmo commit; uma
 abertura com saldo zero não cria movimento financeiro.
+## Consumo SQS e inbox
+
+O consumidor faz long polling de `wager-transactions.fifo`. Para cada envelope, calcula o
+hash do corpo, grava a inbox e executa o mesmo caso de uso financeiro na mesma transação SQL.
+A mensagem só é removida da SQS após o commit; falhas ficam invisíveis por 30 segundos e são
+tentadas novamente, chegando à DLQ após cinco recebimentos. Reentrega com o mesmo `messageId`
+é um no-op; o mesmo ID com hash diferente é conflito auditável. No encerramento, o worker para
+de buscar mensagens e aguarda o polling ativo terminar.

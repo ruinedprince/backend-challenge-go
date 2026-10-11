@@ -59,16 +59,26 @@ func NewProcessor(pool *pgxpool.Pool) *Processor {
 // row, then writes the transaction, optional ledger entry, wallet version and
 // outbox event inside the same SQL transaction.
 func (p *Processor) Process(ctx context.Context, request TransactionRequest) (TransactionResult, error) {
-	payloadHash, err := HashRequest(request)
-	if err != nil {
-		return TransactionResult{}, err
-	}
-
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return TransactionResult{}, fmt.Errorf("begin financial transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	result, err := p.processInTransaction(ctx, tx, request)
+	if err != nil {
+		return TransactionResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return TransactionResult{}, fmt.Errorf("commit financial transaction: %w", err)
+	}
+	return result, nil
+}
+
+func (p *Processor) processInTransaction(ctx context.Context, tx pgx.Tx, request TransactionRequest) (TransactionResult, error) {
+	payloadHash, err := HashRequest(request)
+	if err != nil {
+		return TransactionResult{}, err
+	}
 
 	wallet, err := lockWallet(ctx, tx, request.WalletID)
 	if err != nil {
@@ -121,9 +131,6 @@ func (p *Processor) Process(ctx context.Context, request TransactionRequest) (Tr
 	result, err := p.apply(ctx, tx, wallet, domainTransaction, now)
 	if err != nil {
 		return TransactionResult{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return TransactionResult{}, fmt.Errorf("commit financial transaction: %w", err)
 	}
 	return result, nil
 }
