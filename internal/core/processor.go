@@ -26,16 +26,17 @@ var (
 )
 
 type TransactionRequest struct {
-	ProviderID            string
-	ExternalTransactionID string
-	IdempotencyKey        string
-	PlayerID              string
-	WalletID              string
-	RoundID               string
-	GameID                string
-	Type                  domain.TransactionType
-	Money                 domain.Money
-	OccurredAt            time.Time
+	ProviderID                     string
+	ExternalTransactionID          string
+	IdempotencyKey                 string
+	PlayerID                       string
+	WalletID                       string
+	RoundID                        string
+	GameID                         string
+	Type                           domain.TransactionType
+	Money                          domain.Money
+	ReferenceExternalTransactionID string
+	OccurredAt                     time.Time
 }
 
 type TransactionResult struct {
@@ -118,7 +119,7 @@ func (p *Processor) processInTransaction(ctx context.Context, tx pgx.Tx, request
 		ID: transactionID, ProviderID: request.ProviderID, ExternalTransactionID: request.ExternalTransactionID,
 		IdempotencyKey: request.IdempotencyKey, PayloadHash: payloadHash, WalletID: request.WalletID,
 		PlayerID: request.PlayerID, RoundID: request.RoundID, GameID: request.GameID,
-		Type: request.Type, Money: request.Money, OccurredAt: request.OccurredAt,
+		Type: request.Type, Money: request.Money, ReferenceExternalTransactionID: request.ReferenceExternalTransactionID, OccurredAt: request.OccurredAt,
 	}, now)
 	if err != nil {
 		return TransactionResult{}, err
@@ -128,14 +129,14 @@ func (p *Processor) processInTransaction(ctx context.Context, tx pgx.Tx, request
 		return TransactionResult{}, err
 	}
 
-	result, err := p.apply(ctx, tx, wallet, domainTransaction, now)
+	result, err := p.apply(ctx, tx, wallet, domainTransaction, now, 0)
 	if err != nil {
 		return TransactionResult{}, err
 	}
 	return result, nil
 }
 
-func (p *Processor) apply(ctx context.Context, tx pgx.Tx, wallet *domain.Wallet, transaction *domain.WagerTransaction, now time.Time) (TransactionResult, error) {
+func (p *Processor) apply(ctx context.Context, tx pgx.Tx, wallet *domain.Wallet, transaction *domain.WagerTransaction, now time.Time, previousReferenceAttempts int) (TransactionResult, error) {
 	input := transaction.Input()
 	var entry domain.WalletLedgerEntry
 	var hasLedger bool
@@ -150,6 +151,8 @@ func (p *Processor) apply(ctx context.Context, tx pgx.Tx, wallet *domain.Wallet,
 		hasLedger = movementError == nil
 	case domain.TransactionLoss:
 		// LOSS is a completed business fact but intentionally changes no balance.
+	case domain.TransactionRefund, domain.TransactionRollback:
+		return p.applyReversal(ctx, tx, wallet, transaction, now, previousReferenceAttempts)
 	default:
 		return TransactionResult{}, fmt.Errorf("%w: %s", ErrUnsupportedTransactionType, input.Type)
 	}
@@ -161,7 +164,7 @@ func (p *Processor) apply(ctx context.Context, tx pgx.Tx, wallet *domain.Wallet,
 		if err := transaction.TransitionTo(domain.TransactionRejected, now, "INSUFFICIENT_FUNDS"); err != nil {
 			return TransactionResult{}, err
 		}
-		if err := finishTransaction(ctx, tx, transaction, wallet.Snapshot().Balance, wallet.Snapshot().Version); err != nil {
+		if err := finishTransaction(ctx, tx, transaction, wallet.Snapshot().Balance, wallet.Snapshot().Version, nil); err != nil {
 			return TransactionResult{}, err
 		}
 		if err := insertWagerOutboxEvent(ctx, tx, "WagerTransactionRejected", transaction, now); err != nil {
@@ -181,7 +184,7 @@ func (p *Processor) apply(ctx context.Context, tx pgx.Tx, wallet *domain.Wallet,
 	if err := transaction.TransitionTo(domain.TransactionProcessed, now, ""); err != nil {
 		return TransactionResult{}, err
 	}
-	if err := finishTransaction(ctx, tx, transaction, wallet.Snapshot().Balance, wallet.Snapshot().Version); err != nil {
+	if err := finishTransaction(ctx, tx, transaction, wallet.Snapshot().Balance, wallet.Snapshot().Version, nil); err != nil {
 		return TransactionResult{}, err
 	}
 	if err := insertWagerOutboxEvent(ctx, tx, "WagerTransactionProcessed", transaction, now); err != nil {
@@ -211,15 +214,16 @@ func HashRequest(request TransactionRequest) (string, error) {
 	// A struct has stable field ordering in encoding/json. The idempotency key
 	// and transport metadata are deliberately absent from this canonical payload.
 	payload := struct {
-		ProviderID            string                 `json:"providerId"`
-		ExternalTransactionID string                 `json:"externalTransactionId"`
-		PlayerID              string                 `json:"playerId"`
-		WalletID              string                 `json:"walletId"`
-		RoundID               string                 `json:"roundId"`
-		GameID                string                 `json:"gameId"`
-		Type                  domain.TransactionType `json:"type"`
-		Money                 domain.Money           `json:"money"`
-	}{request.ProviderID, request.ExternalTransactionID, request.PlayerID, request.WalletID, request.RoundID, request.GameID, request.Type, request.Money}
+		ProviderID                     string                 `json:"providerId"`
+		ExternalTransactionID          string                 `json:"externalTransactionId"`
+		PlayerID                       string                 `json:"playerId"`
+		WalletID                       string                 `json:"walletId"`
+		RoundID                        string                 `json:"roundId"`
+		GameID                         string                 `json:"gameId"`
+		Type                           domain.TransactionType `json:"type"`
+		Money                          domain.Money           `json:"money"`
+		ReferenceExternalTransactionID string                 `json:"referenceExternalTransactionId,omitempty"`
+	}{request.ProviderID, request.ExternalTransactionID, request.PlayerID, request.WalletID, request.RoundID, request.GameID, request.Type, request.Money, request.ReferenceExternalTransactionID}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("marshal canonical transaction payload: %w", err)

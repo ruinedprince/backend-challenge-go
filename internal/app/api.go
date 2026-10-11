@@ -34,14 +34,15 @@ func (a *API) CreateTransaction(writer http.ResponseWriter, request *http.Reques
 		return
 	}
 	var body struct {
-		ProviderID            string                 `json:"providerId"`
-		ExternalTransactionID string                 `json:"externalTransactionId"`
-		PlayerID              string                 `json:"playerId"`
-		WalletID              string                 `json:"walletId"`
-		RoundID               string                 `json:"roundId"`
-		GameID                string                 `json:"gameId"`
-		Kind                  domain.TransactionType `json:"kind"`
-		Money                 struct {
+		ProviderID                     string                 `json:"providerId"`
+		ExternalTransactionID          string                 `json:"externalTransactionId"`
+		PlayerID                       string                 `json:"playerId"`
+		WalletID                       string                 `json:"walletId"`
+		RoundID                        string                 `json:"roundId"`
+		GameID                         string                 `json:"gameId"`
+		ReferenceExternalTransactionID string                 `json:"referenceExternalTransactionId"`
+		Kind                           domain.TransactionType `json:"kind"`
+		Money                          struct {
 			Amount   string `json:"amount"`
 			Currency string `json:"currency"`
 		} `json:"money"`
@@ -68,7 +69,7 @@ func (a *API) CreateTransaction(writer http.ResponseWriter, request *http.Reques
 	result, err := a.processor.Process(request.Context(), core.TransactionRequest{
 		ProviderID: body.ProviderID, ExternalTransactionID: body.ExternalTransactionID, IdempotencyKey: key,
 		PlayerID: body.PlayerID, WalletID: body.WalletID, RoundID: body.RoundID, GameID: body.GameID,
-		Type: body.Kind, Money: money, OccurredAt: time.Now().UTC(),
+		Type: body.Kind, Money: money, ReferenceExternalTransactionID: body.ReferenceExternalTransactionID, OccurredAt: time.Now().UTC(),
 	})
 	if err != nil {
 		a.writeProcessError(writer, err)
@@ -205,8 +206,6 @@ func (a *API) writeProcessError(writer http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, core.ErrIdempotencyConflict), errors.Is(err, core.ErrExternalIdentityConflict):
 		writeAPIError(writer, http.StatusConflict, "IDEMPOTENCY_CONFLICT", err.Error())
-	case errors.Is(err, core.ErrUnsupportedTransactionType):
-		writeAPIError(writer, http.StatusConflict, "PENDING_REFERENCE", "reversal processing requires its referenced transaction")
 	case errors.Is(err, core.ErrProviderWalletForbidden):
 		writeAPIError(writer, http.StatusForbidden, "PROVIDER_FORBIDDEN", "token cannot access this wallet")
 	case errors.Is(err, domain.ErrInvalidAmount), errors.Is(err, domain.ErrInvalidCurrency), errors.Is(err, domain.ErrInvalidTransaction), errors.Is(err, domain.ErrInvalidWallet):

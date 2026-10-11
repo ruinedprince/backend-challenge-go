@@ -84,10 +84,25 @@ reenvio com chave e hash iguais devolve exatamente o saldo/resultados gravados; 
 chave com conteúdo diferente é conflito. Além do lock, o `UPDATE` usa a versão anterior
 na cláusula `WHERE` como proteção contra atualização perdida.
 
-No BCG-5, o fluxo síncrono suporta `BET`, `WIN` e `LOSS`. `REFUND` e `ROLLBACK` exigem a
-resolução persistida da referência e entram no BCG-9. O teste de integração executa duas
+O fluxo síncrono suporta `BET`, `WIN` e `LOSS`. `REFUND` e `ROLLBACK` resolvem a
+referência persistida e usam a mesma transação SQL para saldo, ledger e estado. O teste de integração executa duas
 `BET` concorrentes de 80.00 contra saldo 100.00: uma é processada, a outra rejeitada, o
 saldo final é 20.00 e há somente um débito no ledger.
+
+## Referências pendentes e reversões
+
+Uma reversão recebida antes da operação de origem é registrada como `PENDING_REFERENCE`,
+gera seu evento de pendência e recebe tentativa/agendamento duráveis. O resolvedor busca
+pendências a cada segundo; após cada referência ainda indisponível aplica backoff exponencial.
+No quinto retry sem referência, a operação termina como `REJECTED` com
+`REFERENCE_NOT_FOUND`. A reinicialização é segura porque a agenda está no PostgreSQL.
+
+Referência e reversão precisam ter o mesmo provedor, jogador, carteira, rodada, moeda e valor.
+`REFUND` só devolve uma `BET`; `ROLLBACK` desfaz `BET`, `WIN` ou `REFUND`. Para uma aposta,
+`REFUND` e `ROLLBACK` são mutuamente exclusivos: uma segunda tentativa recebe
+`REVERSAL_ALREADY_APPLIED`. Outros códigos estáveis de rejeição são `REFERENCE_MISMATCH`,
+`REFERENCE_TYPE_INVALID`, `REFERENCE_NOT_PROCESSABLE` e
+`INSUFFICIENT_FUNDS_FOR_REVERSAL`.
 
 ## HTTP, OAuth/OIDC e isolamento por provedor
 

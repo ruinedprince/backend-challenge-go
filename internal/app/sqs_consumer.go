@@ -84,16 +84,17 @@ func (c *SQSConsumer) handle(ctx context.Context, message sqsTypesMessage) error
 		MessageID string `json:"messageId"`
 		Type      string `json:"type"`
 		Data      struct {
-			ProviderID            string                 `json:"providerId"`
-			ExternalTransactionID string                 `json:"externalTransactionId"`
-			IdempotencyKey        string                 `json:"idempotencyKey"`
-			PlayerID              string                 `json:"playerId"`
-			WalletID              string                 `json:"walletId"`
-			RoundID               string                 `json:"roundId"`
-			GameID                string                 `json:"gameId"`
-			Kind                  domain.TransactionType `json:"kind"`
-			Type                  domain.TransactionType `json:"type"`
-			Money                 struct {
+			ProviderID                     string                 `json:"providerId"`
+			ExternalTransactionID          string                 `json:"externalTransactionId"`
+			IdempotencyKey                 string                 `json:"idempotencyKey"`
+			PlayerID                       string                 `json:"playerId"`
+			WalletID                       string                 `json:"walletId"`
+			RoundID                        string                 `json:"roundId"`
+			GameID                         string                 `json:"gameId"`
+			ReferenceExternalTransactionID string                 `json:"referenceExternalTransactionId"`
+			Kind                           domain.TransactionType `json:"kind"`
+			Type                           domain.TransactionType `json:"type"`
+			Money                          struct {
 				Amount   string `json:"amount"`
 				Currency string `json:"currency"`
 			} `json:"money"`
@@ -112,7 +113,7 @@ func (c *SQSConsumer) handle(ctx context.Context, message sqsTypesMessage) error
 	if kind == "" {
 		kind = envelope.Data.Type
 	}
-	_, _, err = c.processor.ProcessInbox(ctx, "wager-transactions", envelope.MessageID, hex.EncodeToString(sum[:]), core.TransactionRequest{ProviderID: envelope.Data.ProviderID, ExternalTransactionID: envelope.Data.ExternalTransactionID, IdempotencyKey: envelope.Data.IdempotencyKey, PlayerID: envelope.Data.PlayerID, WalletID: envelope.Data.WalletID, RoundID: envelope.Data.RoundID, GameID: envelope.Data.GameID, Type: kind, Money: money, OccurredAt: time.Now().UTC()})
+	_, _, err = c.processor.ProcessInbox(ctx, "wager-transactions", envelope.MessageID, hex.EncodeToString(sum[:]), core.TransactionRequest{ProviderID: envelope.Data.ProviderID, ExternalTransactionID: envelope.Data.ExternalTransactionID, IdempotencyKey: envelope.Data.IdempotencyKey, PlayerID: envelope.Data.PlayerID, WalletID: envelope.Data.WalletID, RoundID: envelope.Data.RoundID, GameID: envelope.Data.GameID, Type: kind, Money: money, ReferenceExternalTransactionID: envelope.Data.ReferenceExternalTransactionID, OccurredAt: time.Now().UTC()})
 	return err
 }
 

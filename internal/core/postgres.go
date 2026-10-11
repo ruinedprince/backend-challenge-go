@@ -98,10 +98,10 @@ func insertPendingTransaction(ctx context.Context, tx pgx.Tx, transaction *domai
             id, provider_id, external_transaction_id, idempotency_key, payload_hash,
             wallet_id, player_id, round_id, game_id, transaction_type, amount_minor_units,
             currency, reference_external_transaction_id, state, occurred_at, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NULL, $13, $14, $15, $15)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)
     `, input.ID, input.ProviderID, input.ExternalTransactionID, input.IdempotencyKey, input.PayloadHash,
 		input.WalletID, input.PlayerID, input.RoundID, input.GameID, input.Type, input.Money.MinorUnits(),
-		input.Money.Currency(), transaction.State(), input.OccurredAt, transaction.CreatedAt())
+		input.Money.Currency(), nullableString(input.ReferenceExternalTransactionID), transaction.State(), input.OccurredAt, transaction.CreatedAt())
 	if err != nil {
 		return fmt.Errorf("insert pending transaction: %w", err)
 	}
@@ -138,13 +138,13 @@ func insertLedgerEntry(ctx context.Context, tx pgx.Tx, entry domain.WalletLedger
 	return nil
 }
 
-func finishTransaction(ctx context.Context, tx pgx.Tx, transaction *domain.WagerTransaction, balance domain.Money, walletVersion int64) error {
+func finishTransaction(ctx context.Context, tx pgx.Tx, transaction *domain.WagerTransaction, balance domain.Money, walletVersion int64, referenceTransactionID *string) error {
 	_, err := tx.Exec(ctx, `
         UPDATE wager_transactions
         SET state = $1, failure_code = $2, result_balance_minor_units = $3,
-            result_wallet_version = $4, updated_at = $5
-        WHERE id = $6
-    `, transaction.State(), nullableFailureCode(transaction.FailureCode()), balance.MinorUnits(), walletVersion, transaction.UpdatedAt(), transaction.Input().ID)
+            result_wallet_version = $4, reference_transaction_id = $5, updated_at = $6
+        WHERE id = $7
+    `, transaction.State(), nullableFailureCode(transaction.FailureCode()), balance.MinorUnits(), walletVersion, referenceTransactionID, transaction.UpdatedAt(), transaction.Input().ID)
 	if err != nil {
 		return fmt.Errorf("finish transaction: %w", err)
 	}
@@ -156,4 +156,11 @@ func nullableFailureCode(failureCode string) any {
 		return nil
 	}
 	return failureCode
+}
+
+func nullableString(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }
