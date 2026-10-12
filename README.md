@@ -544,7 +544,9 @@ divergências de reconciliação.
 ### Teste de carga opcional
 
 Com o Compose em execução, rode o cenário reproduzível abaixo. Ele abre uma carteira por VU,
-distribui apostas entre as três APIs e imprime throughput, taxa de erros e p50/p95/p99.
+distribui apostas entre as três APIs e imprime throughput, taxa de erros e p50/p95/p99 somente
+das apostas. Durante a execução, também amostra conflitos de concorrência e atraso da outbox; ao
+final, escreve seus valores finais no resumo de observabilidade.
 
 ```sh
 docker run --rm --network backend-challenge-go_default -v "$PWD:/src" -w /src \
