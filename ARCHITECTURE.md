@@ -198,6 +198,14 @@ o dashboard `Wagering Operations`, que agrega os contadores de cada réplica e e
 sinais financeiros e assíncronos. Ambos são serviços locais do Compose, portanto não fazem parte
 do binário nem são necessários para o processamento das apostas.
 
+## Partidas dobradas
+
+Cada lançamento imutável da carteira agora gera automaticamente duas `accounting_postings`: uma
+na conta do jogador e outra na conta de compensação da casa, com lados opostos e mesmo valor.
+O gatilho do banco cria ambas na mesma transação do lançamento original; portanto não existe
+movimento unilateral. As postings também são append-only e preservam o `journal_id` que forma o
+par contábil.
+
 ## Consumo SQS e inbox
 
 O consumidor faz long polling de `wager-transactions.fifo`. Para cada envelope, calcula o
