@@ -1,0 +1,21 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "panels": [
+    {"type":"stat","title":"Transações processadas","targets":[{"expr":"sum(wager_transactions_total{status=\"PROCESSED\"})"}],"gridPos":{"h":8,"w":6,"x":0,"y":0}},
+    {"type":"stat","title":"Duplicatas","targets":[{"expr":"sum(wager_idempotency_duplicates_total)"}],"gridPos":{"h":8,"w":6,"x":6,"y":0}},
+    {"type":"stat","title":"Retries","targets":[{"expr":"sum(wager_retries_total)"}],"gridPos":{"h":8,"w":6,"x":12,"y":0}},
+    {"type":"stat","title":"DLQ","targets":[{"expr":"sum(wager_dlq_messages_total)"}],"gridPos":{"h":8,"w":6,"x":18,"y":0}},
+    {"type":"timeseries","title":"Latência média de processamento","targets":[{"expr":"sum(wager_processing_duration_seconds_sum) / sum(wager_processing_duration_seconds_count)","legendFormat":"segundos"}],"gridPos":{"h":9,"w":12,"x":0,"y":8}},
+    {"type":"timeseries","title":"Atraso da outbox","targets":[{"expr":"max(wager_outbox_oldest_pending_seconds)","legendFormat":"segundos"}],"gridPos":{"h":9,"w":12,"x":12,"y":8}},
+    {"type":"timeseries","title":"Conflitos de concorrência","targets":[{"expr":"sum(wager_concurrency_conflicts_total)","legendFormat":"conflitos"}],"gridPos":{"h":9,"w":12,"x":0,"y":17}},
+    {"type":"timeseries","title":"Divergências de reconciliação","targets":[{"expr":"sum(wallet_reconciliation_divergences_total)","legendFormat":"divergências"}],"gridPos":{"h":9,"w":12,"x":12,"y":17}}
+  ],
+  "schemaVersion": 41,
+  "tags": ["wagering", "observability"],
+  "templating": {"list": []},
+  "time": {"from":"now-1h","to":"now"},
+  "title": "Wagering Operations",
+  "uid": "wagering-operations",
+  "version": 1
+}

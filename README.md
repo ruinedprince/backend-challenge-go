@@ -535,6 +535,11 @@ O Keycloak é exposto em `http://localhost:8081`, o LocalStack em `http://localh
 Jaeger em `http://localhost:16686`. Após gerar qualquer chamada HTTP, selecione o serviço
 `wagering-api` no Jaeger para visualizar o trace da requisição. O endpoint OTLP é configurável
 por `OTEL_EXPORTER_OTLP_ENDPOINT` e aponta para o Jaeger local por padrão.
+
+O Prometheus fica em `http://localhost:9090` e coleta as três APIs. O Grafana fica em
+`http://localhost:3000` (admin/admin), já com o dashboard **Wagering Operations** provisionado.
+Ele apresenta transações, duplicatas, retries, DLQ, latência, atraso da outbox, conflitos e
+divergências de reconciliação.
 Compose inicia três instâncias da mesma API em `http://localhost:8080`,
 `http://localhost:8082` e `http://localhost:8083`. Todas compartilham PostgreSQL, Keycloak e
 LocalStack, mas têm processos, memória e conexões próprios. As três portas são uma conveniência

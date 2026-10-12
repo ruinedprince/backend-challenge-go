@@ -191,6 +191,13 @@ consumidor externo. Os spans são exportados por OTLP para o collector configura
 assim, uma chamada aos endpoints da API pode ser acompanhada visualmente sem depender de um
 serviço externo. Em produção, o mesmo endpoint pode apontar para um collector gerenciado.
 
+## Dashboard operacional
+
+Prometheus coleta `/metrics` das três réplicas a cada cinco segundos. Grafana é provisionado com
+o dashboard `Wagering Operations`, que agrega os contadores de cada réplica e exibe os principais
+sinais financeiros e assíncronos. Ambos são serviços locais do Compose, portanto não fazem parte
+do binário nem são necessários para o processamento das apostas.
+
 ## Consumo SQS e inbox
 
 O consumidor faz long polling de `wager-transactions.fifo`. Para cada envelope, calcula o
