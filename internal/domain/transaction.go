@@ -55,19 +55,51 @@ type WagerTransaction struct {
 }
 
 func NewExternalTransaction(input ExternalTransactionInput, now time.Time) (*WagerTransaction, error) {
-	if now.IsZero() || input.OccurredAt.IsZero() || anyBlank(input.ID, input.ProviderID, input.ExternalTransactionID, input.IdempotencyKey, input.PayloadHash, input.WalletID, input.PlayerID, input.RoundID, input.GameID) {
-		return nil, fmt.Errorf("%w: required external fields are missing", ErrInvalidTransaction)
+	if now.IsZero() {
+		return nil, fmt.Errorf("%w: timestamp is required", ErrInvalidTransaction)
 	}
-	if input.Type == TransactionOpening {
-		return nil, fmt.Errorf("%w: OPENING is internal only", ErrInvalidTransaction)
-	}
-	if err := input.Type.ValidateMoney(input.Money); err != nil {
+	if err := validateExternalTransactionInput(input); err != nil {
 		return nil, err
 	}
-	if (input.Type == TransactionRefund || input.Type == TransactionRollback) && strings.TrimSpace(input.ReferenceExternalTransactionID) == "" {
-		return nil, fmt.Errorf("%w: a reference is required for %s", ErrInvalidTransaction, input.Type)
-	}
 	return &WagerTransaction{input: input, state: TransactionPending, createdAt: now.UTC(), updatedAt: now.UTC()}, nil
+}
+
+// RehydrateExternalTransaction reconstructs an external transaction already
+// persisted by the application. It deliberately does not perform a state
+// transition: loading a record must not replay its history.
+func RehydrateExternalTransaction(input ExternalTransactionInput, state TransactionState, failureCode string, createdAt, updatedAt time.Time) (*WagerTransaction, error) {
+	if createdAt.IsZero() || updatedAt.IsZero() || updatedAt.Before(createdAt) {
+		return nil, fmt.Errorf("%w: invalid persisted timestamps", ErrInvalidTransaction)
+	}
+	if err := validateExternalTransactionInput(input); err != nil {
+		return nil, err
+	}
+	if !state.IsValid() {
+		return nil, fmt.Errorf("%w: unknown persisted state %q", ErrInvalidTransaction, state)
+	}
+	if (state == TransactionRejected || state == TransactionFailed) != (strings.TrimSpace(failureCode) != "") {
+		return nil, fmt.Errorf("%w: persisted failure code does not match state", ErrInvalidTransaction)
+	}
+	return &WagerTransaction{
+		input: input, state: state, failureCode: failureCode,
+		createdAt: createdAt.UTC(), updatedAt: updatedAt.UTC(),
+	}, nil
+}
+
+func validateExternalTransactionInput(input ExternalTransactionInput) error {
+	if input.OccurredAt.IsZero() || anyBlank(input.ID, input.ProviderID, input.ExternalTransactionID, input.IdempotencyKey, input.PayloadHash, input.WalletID, input.PlayerID, input.RoundID, input.GameID) {
+		return fmt.Errorf("%w: required external fields are missing", ErrInvalidTransaction)
+	}
+	if input.Type == TransactionOpening {
+		return fmt.Errorf("%w: OPENING is internal only", ErrInvalidTransaction)
+	}
+	if err := input.Type.ValidateMoney(input.Money); err != nil {
+		return err
+	}
+	if (input.Type == TransactionRefund || input.Type == TransactionRollback) && strings.TrimSpace(input.ReferenceExternalTransactionID) == "" {
+		return fmt.Errorf("%w: a reference is required for %s", ErrInvalidTransaction, input.Type)
+	}
+	return nil
 }
 
 func (t TransactionType) ValidateMoney(money Money) error {
@@ -114,6 +146,10 @@ func (t *WagerTransaction) TransitionTo(next TransactionState, now time.Time, fa
 
 func (s TransactionState) IsTerminal() bool {
 	return s == TransactionProcessed || s == TransactionRejected || s == TransactionFailed
+}
+
+func (s TransactionState) IsValid() bool {
+	return s == TransactionPending || s == TransactionPendingReference || s.IsTerminal()
 }
 
 func (t *WagerTransaction) State() TransactionState         { return t.state }

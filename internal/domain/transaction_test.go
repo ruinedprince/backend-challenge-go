@@ -71,6 +71,28 @@ func TestExternalTransactionRejectsOpeningAndMissingReversalReference(t *testing
 	}
 }
 
+func TestRehydrateExternalTransactionRestoresPersistedStateWithoutTransition(t *testing.T) {
+	t.Parallel()
+	createdAt := time.Date(2026, time.October, 10, 12, 0, 0, 0, time.UTC)
+	updatedAt := createdAt.Add(5 * time.Minute)
+	input := validExternalInput(t, TransactionRefund, "25.00")
+	input.ReferenceExternalTransactionID = "bet-1"
+
+	transaction, err := RehydrateExternalTransaction(input, TransactionPendingReference, "", createdAt, updatedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := transaction.State(), TransactionPendingReference; got != want {
+		t.Fatalf("rehydrated state = %s, want %s", got, want)
+	}
+	if got := transaction.CreatedAt(); !got.Equal(createdAt) {
+		t.Fatalf("created at = %s, want %s", got, createdAt)
+	}
+	if got := transaction.UpdatedAt(); !got.Equal(updatedAt) {
+		t.Fatalf("updated at = %s, want %s", got, updatedAt)
+	}
+}
+
 func validExternalInput(t *testing.T, transactionType TransactionType, amount string) ExternalTransactionInput {
 	t.Helper()
 	return ExternalTransactionInput{

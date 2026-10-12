@@ -90,11 +90,8 @@ func (p *Processor) resolvePendingReference(ctx context.Context, id string) erro
 	if err != nil {
 		return err
 	}
-	transaction, err := domain.NewExternalTransaction(input, createdAt)
+	transaction, err := domain.RehydrateExternalTransaction(input, state, "", createdAt, updatedAt)
 	if err != nil {
-		return err
-	}
-	if err = transaction.TransitionTo(state, updatedAt, ""); err != nil {
 		return err
 	}
 	wallet, err := lockWallet(ctx, tx, input.WalletID)
