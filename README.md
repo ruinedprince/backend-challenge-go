@@ -514,7 +514,9 @@ lançamento), reentrega da inbox, cinco falhas consecutivas encaminhadas para a 
 pendente/expirada e três publishers disputando eventos da outbox, incluindo recuperação de uma
 reivindicação vencida, interrupção antes da publicação e interrupção entre o envio à SQS e a
 confirmação da outbox. O ciclo de vida completo do Fx também é verificado: início dos workers,
-encerramento do HTTP antes dos workers e liberação do pool de banco.
+encerramento do HTTP antes dos workers e liberação do pool de banco. Por fim, o cenário de três
+instâncias é automatizado: 50 cópias da mesma aposta são distribuídas entre `api-a`, `api-b` e
+`api-c`, e a API C confirma o saldo e o único débito no ledger compartilhado.
 
 ## Executando a solução
 

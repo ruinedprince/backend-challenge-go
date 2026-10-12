@@ -79,6 +79,26 @@ func TestAPIAuthenticationAndInternalAuthorizationWithKeycloak(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	providerBMoney, err := domain.ParseExternalMoney("1.00", "BRL")
+	if err != nil {
+		t.Fatal(err)
+	}
+	providerBTransaction, err := core.NewProcessor(pool).Process(ctx, core.TransactionRequest{
+		ProviderID: "provider-b", ExternalTransactionID: "provider-b-transaction", IdempotencyKey: "provider-b:transaction",
+		PlayerID: wallet.PlayerID, WalletID: wallet.ID, RoundID: "round", GameID: "game", Type: domain.TransactionWin,
+		Money: providerBMoney, OccurredAt: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := httptest.NewRequest(http.MethodGet, "/wagering/transactions/"+providerBTransaction.TransactionID, nil)
+	query.Header.Set("Authorization", "Bearer "+providerToken)
+	query.SetPathValue("transactionId", providerBTransaction.TransactionID)
+	queryRecorder := httptest.NewRecorder()
+	api.GetTransaction(queryRecorder, query)
+	if queryRecorder.Code != http.StatusNotFound {
+		t.Fatalf("cross-provider transaction query status=%d want 404", queryRecorder.Code)
+	}
 	isolationBody := []byte(`{"providerId":"provider-a","externalTransactionId":"provider-isolation","playerId":"00000000-0000-0000-0000-000000000983","walletId":"` + wallet.ID + `","roundId":"round","gameId":"game","kind":"BET","money":{"amount":"1.00","currency":"BRL"}}`)
 	isolation := httptest.NewRequest(http.MethodPost, "/wagering/transactions", bytes.NewReader(isolationBody))
 	isolation.Header.Set("Authorization", "Bearer "+providerToken)
@@ -91,8 +111,8 @@ func TestAPIAuthenticationAndInternalAuthorizationWithKeycloak(t *testing.T) {
 	if err := pool.QueryRow(ctx, "SELECT count(*) FROM wager_transactions").Scan(&transactions); err != nil {
 		t.Fatal(err)
 	}
-	if transactions != 0 {
-		t.Fatalf("cross-provider call created %d transactions", transactions)
+	if transactions != 1 {
+		t.Fatalf("cross-provider replay created a transaction: count=%d want 1", transactions)
 	}
 }
 
