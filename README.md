@@ -502,8 +502,11 @@ O roteiro e os resultados esperados estão detalhados em [`DEMO.md`](DEMO.md). B
 carga e autoscaling não são requisitos do desafio e permanecem explicitamente fora deste
 ambiente local; são evoluções de infraestrutura para uma futura operação em produção.
 
-O realm importado tem o cliente de demonstração `provider-a`, com secret
-`provider-a-secret`; ele existe apenas para o ambiente local.
+O realm importado tem os clientes de demonstração `provider-a` (secret
+`provider-a-secret`) e `wallet-service` (secret `wallet-service-secret`). O primeiro registra
+operações financeiras do provedor; o segundo é a identidade interna para abertura e consulta de
+carteiras. Ambos existem apenas para o ambiente local. As políticas SQS de referência para uma
+implantação AWS estão em `deploy/iam/`.
 
 O roteiro completo, incluindo token OAuth, abertura de carteira, aposta, replay e
 reconciliação, está em [DEMO.md](DEMO.md). Para encerrar o ambiente, execute

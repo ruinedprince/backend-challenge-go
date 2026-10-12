@@ -12,16 +12,18 @@ import (
 
 type Principal struct {
 	ProviderID string
+	Internal   bool
 }
 
 type Verifier struct {
-	issuer string
-	mu     sync.Mutex
-	verify *oidc.IDTokenVerifier
+	issuer           string
+	internalClientID string
+	mu               sync.Mutex
+	verify           *oidc.IDTokenVerifier
 }
 
-func NewVerifier(issuer string) *Verifier {
-	return &Verifier{issuer: issuer}
+func NewVerifier(issuer, internalClientID string) *Verifier {
+	return &Verifier{issuer: issuer, internalClientID: internalClientID}
 }
 
 // Authenticate verifies issuer, signature and expiration. Keycloak service
@@ -48,7 +50,7 @@ func (v *Verifier) Authenticate(ctx context.Context, authorization string) (Prin
 	if claims.AuthorizedParty == "" {
 		return Principal{}, fmt.Errorf("access token has no authorized party")
 	}
-	return Principal{ProviderID: claims.AuthorizedParty}, nil
+	return Principal{ProviderID: claims.AuthorizedParty, Internal: claims.AuthorizedParty == v.internalClientID}, nil
 }
 
 func (v *Verifier) getVerifier(ctx context.Context) (*oidc.IDTokenVerifier, error) {

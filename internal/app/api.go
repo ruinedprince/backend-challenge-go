@@ -103,10 +103,11 @@ func (a *API) GetExternalTransaction(writer http.ResponseWriter, request *http.R
 
 func (a *API) OpenWallet(writer http.ResponseWriter, request *http.Request) {
 	principal, ok := a.authenticate(writer, request)
-	if !ok {
+	if !ok || !a.requireInternal(writer, principal) {
 		return
 	}
 	var body struct {
+		ProviderID     string `json:"providerId"`
 		PlayerID       string `json:"playerId"`
 		InitialBalance struct {
 			Amount   string `json:"amount"`
@@ -122,7 +123,11 @@ func (a *API) OpenWallet(writer http.ResponseWriter, request *http.Request) {
 		writeAPIError(writer, http.StatusBadRequest, "INVALID_MONEY", err.Error())
 		return
 	}
-	wallet, err := a.processor.OpenWallet(request.Context(), principal.ProviderID, body.PlayerID, money)
+	if strings.TrimSpace(body.ProviderID) == "" {
+		writeAPIError(writer, http.StatusBadRequest, "PROVIDER_REQUIRED", "providerId is required")
+		return
+	}
+	wallet, err := a.processor.OpenWallet(request.Context(), body.ProviderID, body.PlayerID, money)
 	if err != nil {
 		writeAPIError(writer, http.StatusConflict, "WALLET_CONFLICT", "wallet could not be opened")
 		return
@@ -132,10 +137,10 @@ func (a *API) OpenWallet(writer http.ResponseWriter, request *http.Request) {
 
 func (a *API) GetWallet(writer http.ResponseWriter, request *http.Request) {
 	principal, ok := a.authenticate(writer, request)
-	if !ok {
+	if !ok || !a.requireInternal(writer, principal) {
 		return
 	}
-	wallet, err := a.processor.FindWallet(request.Context(), principal.ProviderID, request.PathValue("walletId"))
+	wallet, err := a.processor.FindWalletInternal(request.Context(), request.PathValue("walletId"))
 	if err != nil {
 		a.writeWalletError(writer, err)
 		return
@@ -145,10 +150,10 @@ func (a *API) GetWallet(writer http.ResponseWriter, request *http.Request) {
 
 func (a *API) GetLedger(writer http.ResponseWriter, request *http.Request) {
 	principal, ok := a.authenticate(writer, request)
-	if !ok {
+	if !ok || !a.requireInternal(writer, principal) {
 		return
 	}
-	entries, err := a.processor.ListLedger(request.Context(), principal.ProviderID, request.PathValue("walletId"), 50)
+	entries, err := a.processor.ListLedgerInternal(request.Context(), request.PathValue("walletId"), 50)
 	if err != nil {
 		a.writeWalletError(writer, err)
 		return
@@ -158,10 +163,10 @@ func (a *API) GetLedger(writer http.ResponseWriter, request *http.Request) {
 
 func (a *API) ReconcileWallet(writer http.ResponseWriter, request *http.Request) {
 	principal, ok := a.authenticate(writer, request)
-	if !ok {
+	if !ok || !a.requireInternal(writer, principal) {
 		return
 	}
-	wallet, calculated, count, err := a.processor.Reconcile(request.Context(), principal.ProviderID, request.PathValue("walletId"))
+	wallet, calculated, count, err := a.processor.ReconcileInternal(request.Context(), request.PathValue("walletId"))
 	if err != nil {
 		a.writeWalletError(writer, err)
 		return
@@ -200,6 +205,14 @@ func (a *API) authenticate(writer http.ResponseWriter, request *http.Request) (a
 		return auth.Principal{}, false
 	}
 	return principal, true
+}
+
+func (a *API) requireInternal(writer http.ResponseWriter, principal auth.Principal) bool {
+	if principal.Internal {
+		return true
+	}
+	writeAPIError(writer, http.StatusForbidden, "INTERNAL_SERVICE_REQUIRED", "wallet operations require the internal service identity")
+	return false
 }
 
 func (a *API) writeProcessError(writer http.ResponseWriter, err error) {

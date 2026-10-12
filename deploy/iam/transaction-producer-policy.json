@@ -1,0 +1,11 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SendTransactionsOnly",
+      "Effect": "Allow",
+      "Action": "sqs:SendMessage",
+      "Resource": "arn:aws:sqs:<region>:<account-id>:wager-transactions.fifo"
+    }
+  ]
+}

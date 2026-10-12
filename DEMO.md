@@ -27,15 +27,23 @@ uma instância escolhida. Não representam três APIs diferentes.
 ## 2. Obter o token do provedor
 
 ```powershell
-$token = (Invoke-RestMethod -Method Post `
+$providerToken = (Invoke-RestMethod -Method Post `
   -Uri http://localhost:8081/realms/wagering/protocol/openid-connect/token `
   -Authentication Basic -AllowUnencryptedAuthentication -Credential (New-Object pscredential('provider-a',(ConvertTo-SecureString 'provider-a-secret' -AsPlainText -Force))) `
   -Body @{ grant_type = 'client_credentials' }).access_token
-$headers = @{ Authorization = "Bearer $token" }
+$providerHeaders = @{ Authorization = "Bearer $providerToken" }
+
+$internalToken = (Invoke-RestMethod -Method Post `
+  -Uri http://localhost:8081/realms/wagering/protocol/openid-connect/token `
+  -Authentication Basic -AllowUnencryptedAuthentication -Credential (New-Object pscredential('wallet-service',(ConvertTo-SecureString 'wallet-service-secret' -AsPlainText -Force))) `
+  -Body @{ grant_type = 'client_credentials' }).access_token
+$internalHeaders = @{ Authorization = "Bearer $internalToken" }
 ```
 
-O token é emitido pelo Keycloak. A API verifica assinatura, emissor, expiração e o cliente
-autorizado antes de aceitar uma operação. O Compose fixa o issuer interno como
+O token é emitido pelo Keycloak. `provider-a` só registra e consulta suas próprias transações;
+`wallet-service` é a identidade interna que abre carteiras, consulta ledger e reconcilia saldo.
+A API verifica assinatura, emissor, expiração e o cliente autorizado antes de aceitar uma
+operação. O Compose fixa o issuer interno como
 `http://keycloak:8080/realms/wagering`, permitindo solicitar o token por `localhost:8081`
 e validá-lo pela API dentro da rede Docker.
 
@@ -43,8 +51,8 @@ e validá-lo pela API dentro da rede Docker.
 
 ```powershell
 $wallet = Invoke-RestMethod -Method Post -Uri http://localhost:8080/wallets `
-  -Headers $headers -ContentType 'application/json' -Body @'
-{"playerId":"11111111-1111-4111-8111-111111111111","initialBalance":{"amount":"100.00","currency":"BRL"}}
+  -Headers $internalHeaders -ContentType 'application/json' -Body @'
+{"providerId":"provider-a","playerId":"11111111-1111-4111-8111-111111111111","initialBalance":{"amount":"100.00","currency":"BRL"}}
 '@
 
 $bet = @{
@@ -55,7 +63,7 @@ $bet = @{
 } | ConvertTo-Json -Depth 3
 
 Invoke-RestMethod -Method Post -Uri http://localhost:8080/wagering/transactions `
-  -Headers (@{ Authorization = "Bearer $token"; 'Idempotency-Key' = 'provider-a:demo-bet-1' }) `
+  -Headers (@{ Authorization = "Bearer $providerToken"; 'Idempotency-Key' = 'provider-a:demo-bet-1' }) `
   -ContentType 'application/json' -Body $bet
 ```
 
@@ -64,10 +72,10 @@ O resultado deve ficar em `PROCESSED` com saldo `75.00`. O mesmo request, com a 
 
 ```powershell
 Invoke-RestMethod -Method Post -Uri http://localhost:8080/wagering/transactions `
-  -Headers (@{ Authorization = "Bearer $token"; 'Idempotency-Key' = 'provider-a:demo-bet-1' }) `
+  -Headers (@{ Authorization = "Bearer $providerToken"; 'Idempotency-Key' = 'provider-a:demo-bet-1' }) `
   -ContentType 'application/json' -Body $bet
 
-Invoke-RestMethod -Method Post -Uri "http://localhost:8080/wallets/$($wallet.id)/reconciliation" -Headers $headers
+Invoke-RestMethod -Method Post -Uri "http://localhost:8080/wallets/$($wallet.id)/reconciliation" -Headers $internalHeaders
 ```
 
 ## 4. Demonstração de referência pendente

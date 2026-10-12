@@ -118,12 +118,36 @@ públicas no issuer OIDC configurado, verifica assinatura, issuer e expiração 
 e extrai o cliente autorizado da claim assinada `azp`. O `providerId` enviado no corpo ou
 na rota precisa ser igual ao `azp`; portanto ele não é confiado apenas porque veio no JSON.
 
-`POST /wallets`, leituras de carteira/ledger/reconciliação e os endpoints de transação exigem
-bearer token. A tabela `wallet_provider_access` vincula uma nova carteira ao provedor que a
-abriu e o núcleo financeiro verifica esse vínculo dentro da própria transação antes de mexer
-no saldo. Assim, conhecer um UUID de carteira não concede acesso a outro provedor. A abertura
-positiva registra `OPENING`, crédito no ledger e dois eventos de outbox no mesmo commit; uma
-abertura com saldo zero não cria movimento financeiro.
+Os endpoints de transação aceitam somente a identidade de um provedor, e o `providerId` do
+corpo ou rota precisa ser igual ao `azp`. Já `POST /wallets`, leitura de carteira/ledger e
+reconciliação exigem exclusivamente o cliente interno `wallet-service`; esse cliente informa o
+provedor dono ao abrir a carteira. Assim, uma credencial de provedor não consegue criar saldo
+inicial nem consultar o ledger. A tabela `wallet_provider_access` vincula a nova carteira ao
+provedor e o núcleo financeiro verifica esse vínculo dentro da própria transação antes de mexer
+no saldo. Conhecer um UUID de carteira não concede acesso a outro provedor. A abertura positiva
+registra `OPENING`, crédito no ledger e dois eventos de outbox no mesmo commit; uma abertura com
+saldo zero não cria movimento financeiro.
+
+## Credenciais e políticas SQS
+
+Cada chamada ao broker é autenticada por credenciais AWS. As políticas de menor privilégio para
+uma implantação AWS estão versionadas em `deploy/iam/`: o produtor externo só envia para
+`wager-transactions.fifo`; o worker da aplicação só consome essa fila e publica em
+`wager-events.fifo`; e o operador de DLQ tem permissões separadas para investigar ou reenviar
+falhas. Antes de aplicar em AWS, substitua `<region>` e `<account-id>` pelos valores reais e
+associe cada política à role correspondente.
+
+O LocalStack local usa a credencial pública de desenvolvimento `test` e não simula IAM neste
+Compose. Essa simplificação não deve ser levada para produção: em AWS as roles e políticas
+versionadas acima são o limite de acesso ao broker.
+
+## Evoluções fora do escopo
+
+O desafio aceita HTTP e SQS como entradas equivalentes; ele não determina qual integração deve
+usar cada transporte. Uma implantação real pode documentar uma convenção por parceiro (por
+exemplo, resposta síncrona por HTTP e lotes por SQS), sem alterar a idempotência compartilhada.
+Balanceador, autoscaling, métricas e tracing distribuído também são decisões de infraestrutura
+futuras, não parte deste desafio.
 ## Consumo SQS e inbox
 
 O consumidor faz long polling de `wager-transactions.fifo`. Para cada envelope, calcula o

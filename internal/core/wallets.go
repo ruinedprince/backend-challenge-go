@@ -72,14 +72,28 @@ func (p *Processor) OpenWallet(ctx context.Context, providerID, playerID string,
 }
 
 func (p *Processor) FindWallet(ctx context.Context, providerID, walletID string) (WalletView, error) {
+	return p.findWallet(ctx, walletID, providerID)
+}
+
+func (p *Processor) FindWalletInternal(ctx context.Context, walletID string) (WalletView, error) {
+	return p.findWallet(ctx, walletID, "")
+}
+
+func (p *Processor) findWallet(ctx context.Context, walletID, providerID string) (WalletView, error) {
 	var view WalletView
 	var minor int64
 	var currency string
-	err := p.pool.QueryRow(ctx, `
+	query := `
         SELECT w.id,w.player_id,w.balance_minor_units,w.currency,w.version FROM wallets w
-        JOIN wallet_provider_access a ON a.wallet_id=w.id
-        WHERE w.id=$1 AND a.provider_id=$2
-    `, walletID, providerID).Scan(&view.ID, &view.PlayerID, &minor, &currency, &view.Version)
+	`
+	args := []any{walletID}
+	if providerID != "" {
+		query += ` JOIN wallet_provider_access a ON a.wallet_id=w.id WHERE w.id=$1 AND a.provider_id=$2`
+		args = append(args, providerID)
+	} else {
+		query += ` WHERE w.id=$1`
+	}
+	err := p.pool.QueryRow(ctx, query, args...).Scan(&view.ID, &view.PlayerID, &minor, &currency, &view.Version)
 	if err != nil {
 		return WalletView{}, err
 	}
@@ -92,14 +106,30 @@ func (p *Processor) FindWallet(ctx context.Context, providerID, walletID string)
 }
 
 func (p *Processor) ListLedger(ctx context.Context, providerID, walletID string, limit int) ([]LedgerView, error) {
+	return p.listLedger(ctx, walletID, providerID, limit)
+}
+
+func (p *Processor) ListLedgerInternal(ctx context.Context, walletID string, limit int) ([]LedgerView, error) {
+	return p.listLedger(ctx, walletID, "", limit)
+}
+
+func (p *Processor) listLedger(ctx context.Context, walletID, providerID string, limit int) ([]LedgerView, error) {
 	if limit < 1 || limit > 50 {
 		limit = 50
 	}
-	rows, err := p.pool.Query(ctx, `
+	query := `
         SELECT e.transaction_id,e.direction,e.amount_minor_units,e.currency,e.balance_before_minor_units,e.balance_after_minor_units,e.created_at
-        FROM wallet_ledger_entries e JOIN wallet_provider_access a ON a.wallet_id=e.wallet_id
-        WHERE e.wallet_id=$1 AND a.provider_id=$2 ORDER BY e.created_at DESC,e.id DESC LIMIT $3
-    `, walletID, providerID, limit)
+	        FROM wallet_ledger_entries e`
+	args := []any{walletID}
+	if providerID != "" {
+		query += ` JOIN wallet_provider_access a ON a.wallet_id=e.wallet_id WHERE e.wallet_id=$1 AND a.provider_id=$2`
+		args = append(args, providerID)
+	} else {
+		query += ` WHERE e.wallet_id=$1`
+	}
+	query += ` ORDER BY e.created_at DESC,e.id DESC LIMIT $` + fmt.Sprint(len(args)+1)
+	args = append(args, limit)
+	rows, err := p.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +151,15 @@ func (p *Processor) ListLedger(ctx context.Context, providerID, walletID string,
 }
 
 func (p *Processor) Reconcile(ctx context.Context, providerID, walletID string) (WalletView, domain.Money, int64, error) {
-	wallet, err := p.FindWallet(ctx, providerID, walletID)
+	return p.reconcile(ctx, walletID, providerID)
+}
+
+func (p *Processor) ReconcileInternal(ctx context.Context, walletID string) (WalletView, domain.Money, int64, error) {
+	return p.reconcile(ctx, walletID, "")
+}
+
+func (p *Processor) reconcile(ctx context.Context, walletID, providerID string) (WalletView, domain.Money, int64, error) {
+	wallet, err := p.findWallet(ctx, walletID, providerID)
 	if err != nil {
 		return WalletView{}, domain.Money{}, 0, err
 	}

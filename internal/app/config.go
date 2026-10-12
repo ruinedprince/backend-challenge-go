@@ -9,14 +9,15 @@ import (
 )
 
 type Config struct {
-	HTTPAddr        string
-	ShutdownTimeout time.Duration
-	DatabaseURL     string
-	KeycloakIssuer  string
-	SQSEndpointURL  string
-	AWSRegion       string
-	AWSAccessKeyID  string
-	AWSSecretKey    string
+	HTTPAddr         string
+	ShutdownTimeout  time.Duration
+	DatabaseURL      string
+	KeycloakIssuer   string
+	InternalClientID string
+	SQSEndpointURL   string
+	AWSRegion        string
+	AWSAccessKeyID   string
+	AWSSecretKey     string
 }
 
 func LoadConfig() (Config, error) {
@@ -26,17 +27,18 @@ func LoadConfig() (Config, error) {
 	}
 
 	config := Config{
-		HTTPAddr:        valueOrDefault("APP_HTTP_ADDR", ":8080"),
-		ShutdownTimeout: shutdownTimeout,
-		DatabaseURL:     os.Getenv("DATABASE_URL"),
-		KeycloakIssuer:  os.Getenv("KEYCLOAK_ISSUER_URL"),
-		SQSEndpointURL:  os.Getenv("SQS_ENDPOINT_URL"),
-		AWSRegion:       os.Getenv("AWS_REGION"),
-		AWSAccessKeyID:  os.Getenv("AWS_ACCESS_KEY_ID"),
-		AWSSecretKey:    os.Getenv("AWS_SECRET_ACCESS_KEY"),
+		HTTPAddr:         valueOrDefault("APP_HTTP_ADDR", ":8080"),
+		ShutdownTimeout:  shutdownTimeout,
+		DatabaseURL:      os.Getenv("DATABASE_URL"),
+		KeycloakIssuer:   os.Getenv("KEYCLOAK_ISSUER_URL"),
+		InternalClientID: valueOrDefault("INTERNAL_SERVICE_CLIENT_ID", "wallet-service"),
+		SQSEndpointURL:   os.Getenv("SQS_ENDPOINT_URL"),
+		AWSRegion:        os.Getenv("AWS_REGION"),
+		AWSAccessKeyID:   os.Getenv("AWS_ACCESS_KEY_ID"),
+		AWSSecretKey:     os.Getenv("AWS_SECRET_ACCESS_KEY"),
 	}
 
-	if config.DatabaseURL == "" || config.KeycloakIssuer == "" || config.SQSEndpointURL == "" {
+	if config.DatabaseURL == "" || config.KeycloakIssuer == "" || config.InternalClientID == "" || config.SQSEndpointURL == "" {
 		return Config{}, fmt.Errorf("DATABASE_URL, KEYCLOAK_ISSUER_URL and SQS_ENDPOINT_URL are required")
 	}
 	if shutdownTimeout <= 0 {

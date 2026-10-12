@@ -39,6 +39,7 @@ function New-Wallet {
 
     $body = @{
         playerId       = [guid]::NewGuid().ToString()
+        providerId     = 'provider-a'
         initialBalance = @{ amount = '100.00'; currency = 'BRL' }
     } | ConvertTo-Json -Depth 3
 
@@ -84,11 +85,17 @@ $token = (Invoke-RestMethod -Method Post `
     -Credential (New-Object pscredential('provider-a', (ConvertTo-SecureString 'provider-a-secret' -AsPlainText -Force))) `
     -Body @{ grant_type = 'client_credentials' }).access_token
 
-$headers = @{ Authorization = "Bearer $token" }
+$providerHeaders = @{ Authorization = "Bearer $token" }
+$internalToken = (Invoke-RestMethod -Method Post `
+    -Uri 'http://localhost:8081/realms/wagering/protocol/openid-connect/token' `
+    -Authentication Basic -AllowUnencryptedAuthentication `
+    -Credential (New-Object pscredential('wallet-service', (ConvertTo-SecureString 'wallet-service-secret' -AsPlainText -Force))) `
+    -Body @{ grant_type = 'client_credentials' }).access_token
+$internalHeaders = @{ Authorization = "Bearer $internalToken" }
 $runId = [guid]::NewGuid().ToString()
 
 # Scenario 1: two different bets for the same R$100 wallet reach API A and API B together.
-$wallet = New-Wallet -BaseUrl $apiUrls[0] -Headers $headers
+$wallet = New-Wallet -BaseUrl $apiUrls[0] -Headers $internalHeaders
 $firstBet = New-BetBody -WalletId $wallet.id -PlayerId $wallet.playerId -ExternalTransactionId "multi-a-$([guid]::NewGuid())" -Amount '80.00'
 $secondBet = New-BetBody -WalletId $wallet.id -PlayerId $wallet.playerId -ExternalTransactionId "multi-b-$([guid]::NewGuid())" -Amount '80.00'
 $firstKey = "multi-instance-a-$runId"
@@ -110,8 +117,8 @@ Remove-Job $firstJob, $secondJob
 
 $processed = @($contestedResults | Where-Object status -eq 'PROCESSED').Count
 $rejected = @($contestedResults | Where-Object status -eq 'REJECTED').Count
-$contestedWallet = Invoke-RestMethod -Uri "$($apiUrls[2])/wallets/$($wallet.id)" -Headers $headers
-$contestedLedger = Invoke-RestMethod -Uri "$($apiUrls[2])/wallets/$($wallet.id)/ledger" -Headers $headers
+$contestedWallet = Invoke-RestMethod -Uri "$($apiUrls[2])/wallets/$($wallet.id)" -Headers $internalHeaders
+$contestedLedger = Invoke-RestMethod -Uri "$($apiUrls[2])/wallets/$($wallet.id)/ledger" -Headers $internalHeaders
 $contestedDebits = @($contestedLedger.entries | Where-Object Direction -eq 'DEBIT').Count
 
 Assert-That ($processed -eq 1 -and $rejected -eq 1) 'Expected one processed and one rejected R$80 bet.'
@@ -121,9 +128,9 @@ Write-Host 'PASS: API A and API B contested one wallet; API C confirmed R$20.00 
 
 # Scenario 2: independent wallets continue in parallel across all three APIs.
 $parallelWallets = @(
-    (New-Wallet -BaseUrl $apiUrls[0] -Headers $headers)
-    (New-Wallet -BaseUrl $apiUrls[1] -Headers $headers)
-    (New-Wallet -BaseUrl $apiUrls[2] -Headers $headers)
+    (New-Wallet -BaseUrl $apiUrls[0] -Headers $internalHeaders)
+    (New-Wallet -BaseUrl $apiUrls[1] -Headers $internalHeaders)
+    (New-Wallet -BaseUrl $apiUrls[2] -Headers $internalHeaders)
 )
 $parallelJobs = foreach ($number in 0..2) {
     $parallelWallet = $parallelWallets[$number]
@@ -139,7 +146,7 @@ Wait-Job $parallelJobs | Out-Null
 $parallelResults = @($parallelJobs | ForEach-Object { Receive-Job $_ -ErrorAction Stop })
 Remove-Job $parallelJobs
 $parallelBalances = @($parallelWallets | ForEach-Object {
-    (Invoke-RestMethod -Uri "$($apiUrls[2])/wallets/$($_.id)" -Headers $headers).balance.amount
+    (Invoke-RestMethod -Uri "$($apiUrls[2])/wallets/$($_.id)" -Headers $internalHeaders).balance.amount
 })
 
 Assert-That (@($parallelResults | Where-Object status -eq 'PROCESSED').Count -eq 3) 'Expected three independent-wallet bets to be processed.'
@@ -147,7 +154,7 @@ Assert-That (@($parallelBalances | Where-Object { $_ -ne '75.00' }).Count -eq 0)
 Write-Host 'PASS: API A, API B and API C processed different wallets in parallel.'
 
 # Scenario 3: fifty deliveries of the same bet are spread across all three APIs.
-$replayWallet = New-Wallet -BaseUrl $apiUrls[0] -Headers $headers
+$replayWallet = New-Wallet -BaseUrl $apiUrls[0] -Headers $internalHeaders
 $replayExternalId = "multi-replay-$([guid]::NewGuid())"
 $replayBody = New-BetBody -WalletId $replayWallet.id -PlayerId $replayWallet.playerId -ExternalTransactionId $replayExternalId -Amount '25.00'
 $replayKey = "multi-instance-replay-$runId"
@@ -163,8 +170,8 @@ Wait-Job $replayJobs | Out-Null
 $replayResults = @($replayJobs | ForEach-Object { Receive-Job $_ -ErrorAction Stop })
 Remove-Job $replayJobs
 
-$replayWalletState = Invoke-RestMethod -Uri "$($apiUrls[2])/wallets/$($replayWallet.id)" -Headers $headers
-$replayLedger = Invoke-RestMethod -Uri "$($apiUrls[2])/wallets/$($replayWallet.id)/ledger" -Headers $headers
+$replayWalletState = Invoke-RestMethod -Uri "$($apiUrls[2])/wallets/$($replayWallet.id)" -Headers $internalHeaders
+$replayLedger = Invoke-RestMethod -Uri "$($apiUrls[2])/wallets/$($replayWallet.id)/ledger" -Headers $internalHeaders
 $replayDebits = @($replayLedger.entries | Where-Object Direction -eq 'DEBIT').Count
 $firstDeliveries = @($replayResults | Where-Object { -not $_.idempotentReplay }).Count
 $repeatedDeliveries = @($replayResults | Where-Object idempotentReplay).Count

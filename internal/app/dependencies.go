@@ -37,7 +37,7 @@ var Module = fx.Module("application",
 )
 
 func newOIDCVerifier(config Config) *auth.Verifier {
-	return auth.NewVerifier(config.KeycloakIssuer)
+	return auth.NewVerifier(config.KeycloakIssuer, config.InternalClientID)
 }
 
 func NewPostgresPool(config Config) (*pgxpool.Pool, error) {

@@ -1,0 +1,27 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ConsumeIncomingTransactions",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:ChangeMessageVisibility",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+      ],
+      "Resource": "arn:aws:sqs:<region>:<account-id>:wager-transactions.fifo"
+    },
+    {
+      "Sid": "PublishIntegrationEvents",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+      ],
+      "Resource": "arn:aws:sqs:<region>:<account-id>:wager-events.fifo"
+    }
+  ]
+}
