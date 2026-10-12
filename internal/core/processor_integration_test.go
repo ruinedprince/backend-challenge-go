@@ -135,6 +135,44 @@ func TestProcessorConcurrentBetsAndReplay(t *testing.T) {
 	}
 }
 
+func TestProcessorOpenWalletCreatesOpeningLedgerAndOutbox(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is required for PostgreSQL integration test")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if _, err := pool.Exec(ctx, "TRUNCATE outbox_events, inbox_messages, wallet_ledger_entries, wager_transactions, wallets CASCADE"); err != nil {
+		t.Fatal(err)
+	}
+	initial, err := domain.ParseExternalMoney("100.00", "BRL")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wallet, err := NewProcessor(pool).OpenWallet(ctx, "provider-a", "00000000-0000-0000-0000-000000000901", initial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wallet.Version != 1 || wallet.Balance.String() != "100.00" {
+		t.Fatalf("wallet=%+v", wallet)
+	}
+	var transactionType, state, direction string
+	var ledgerAmount, events int
+	if err := pool.QueryRow(ctx, `SELECT t.transaction_type,t.state,e.direction,e.amount_minor_units FROM wager_transactions t JOIN wallet_ledger_entries e ON e.transaction_id=t.id WHERE t.wallet_id=$1`, wallet.ID).Scan(&transactionType, &state, &direction, &ledgerAmount); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM outbox_events WHERE aggregate_id IN (SELECT id FROM wager_transactions WHERE wallet_id=$1)`, wallet.ID).Scan(&events); err != nil {
+		t.Fatal(err)
+	}
+	if transactionType != "OPENING" || state != "PROCESSED" || direction != "CREDIT" || ledgerAmount != 10000 || events != 2 {
+		t.Fatalf("opening=%s/%s ledger=%s/%d events=%d", transactionType, state, direction, ledgerAmount, events)
+	}
+}
+
 func TestProcessorResolvesPendingReferenceAndExpiresMissingReference(t *testing.T) {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
