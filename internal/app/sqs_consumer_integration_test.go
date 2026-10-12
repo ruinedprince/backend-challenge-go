@@ -166,11 +166,6 @@ func TestSQSConsumerAndHTTPPathShareFinancialIdempotency(t *testing.T) {
 	}
 	request := core.TransactionRequest{ProviderID: "provider-a", ExternalTransactionID: "http-sqs-same-bet", IdempotencyKey: "provider-a:http-sqs-same-bet", PlayerID: playerID, WalletID: walletID, RoundID: "round-http-sqs", GameID: "game-http-sqs", Type: domain.TransactionBet, Money: money, OccurredAt: time.Now().UTC()}
 	processor := core.NewProcessor(pool)
-	// Process is the application path called by the HTTP handler.
-	first, err := processor.Process(ctx, request)
-	if err != nil || first.Status != domain.TransactionProcessed || first.Balance.String() != "75.00" {
-		t.Fatalf("HTTP path = %+v, %v", first, err)
-	}
 	body, err := json.Marshal(map[string]any{
 		"messageId": "http-sqs-same-message", "type": "WagerTransactionRequested",
 		"data": map[string]any{"providerId": request.ProviderID, "externalTransactionId": request.ExternalTransactionID, "idempotencyKey": request.IdempotencyKey, "playerId": playerID, "walletId": walletID, "roundId": request.RoundID, "gameId": request.GameID, "kind": "BET", "money": map[string]string{"amount": "25.00", "currency": "BRL"}},
@@ -182,11 +177,40 @@ func TestSQSConsumerAndHTTPPathShareFinancialIdempotency(t *testing.T) {
 		t.Fatal(err)
 	}
 	deleted := make(chan struct{})
+	sqsReady := make(chan struct{})
+	start := make(chan struct{})
+	httpResult := make(chan core.TransactionResult, 1)
+	httpErrors := make(chan error, 1)
 	consumer := NewSQSConsumer(client, processor, slog.Default())
 	consumer.queueName = queueName
+	consumer.beforeProcess = func(context.Context, sqsTypesMessage) {
+		close(sqsReady)
+		<-start
+	}
 	consumer.afterDelete = func(context.Context, sqsTypesMessage) { close(deleted) }
 	if err := consumer.Start(ctx); err != nil {
 		t.Fatal(err)
+	}
+	waitForSignal(t, sqsReady, 5*time.Second, "SQS consumer to be ready for the same operation")
+	go func() {
+		<-start
+		result, err := processor.Process(ctx, request) // application path used by HTTP
+		if err != nil {
+			httpErrors <- err
+			return
+		}
+		httpResult <- result
+	}()
+	close(start) // releases the HTTP and SQS paths at the same time.
+	select {
+	case err := <-httpErrors:
+		t.Fatalf("HTTP path error: %v", err)
+	case result := <-httpResult:
+		if result.Status != domain.TransactionProcessed || result.Balance.String() != "75.00" {
+			t.Fatalf("HTTP path result = %+v", result)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for HTTP path")
 	}
 	waitForSignal(t, deleted, 5*time.Second, "SQS duplicate to be acknowledged")
 	stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

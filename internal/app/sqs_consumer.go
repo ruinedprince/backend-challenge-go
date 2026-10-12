@@ -28,6 +28,7 @@ type SQSConsumer struct {
 	queueName         string
 	afterCommit       func(context.Context, sqsTypesMessage)
 	afterDelete       func(context.Context, sqsTypesMessage)
+	beforeProcess     func(context.Context, sqsTypesMessage)
 	visibilityTimeout int32
 }
 
@@ -40,6 +41,7 @@ func NewSQSConsumer(client *sqs.Client, processor *core.Processor, logger *slog.
 		queueName:         "wager-transactions.fifo",
 		afterCommit:       func(context.Context, sqsTypesMessage) {},
 		afterDelete:       func(context.Context, sqsTypesMessage) {},
+		beforeProcess:     func(context.Context, sqsTypesMessage) {},
 		visibilityTimeout: 30,
 	}
 }
@@ -163,6 +165,7 @@ func (c *SQSConsumer) handle(ctx context.Context, message sqsTypesMessage) error
 	if kind == "" {
 		kind = envelope.Data.Type
 	}
+	c.beforeProcess(ctx, message)
 	_, _, err = c.processor.ProcessInbox(ctx, "wager-transactions", envelope.MessageID, hex.EncodeToString(sum[:]), core.TransactionRequest{ProviderID: envelope.Data.ProviderID, ExternalTransactionID: envelope.Data.ExternalTransactionID, IdempotencyKey: envelope.Data.IdempotencyKey, PlayerID: envelope.Data.PlayerID, WalletID: envelope.Data.WalletID, RoundID: envelope.Data.RoundID, GameID: envelope.Data.GameID, Type: kind, Money: money, ReferenceExternalTransactionID: envelope.Data.ReferenceExternalTransactionID, OccurredAt: time.Now().UTC()})
 	return err
 }
