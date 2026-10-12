@@ -123,8 +123,9 @@ duplicar débito, referências pendentes/expiradas e três publishers concorrent
 
 ## Limitações conhecidas e evolução de produção
 
-- A métrica `wallet_reconciliation_divergences_total` é exposta em `GET /metrics`; métricas
-  operacionais mais amplas e tracing distribuído permanecem como evolução de produção.
+- `GET /metrics` expõe métricas compatíveis com Prometheus para resultados, duplicatas, retries,
+  DLQ, conflitos, latência, atraso da outbox e divergências. Um servidor Prometheus, dashboards e
+  tracing distribuído permanecem como evolução de produção.
 - A entrega de eventos é at-least-once. Consumidores de `wager-events.fifo` devem deduplicar por
   `eventId`, que permanece estável em republicações.
 - Este ambiente local usa três portas para tornar cada instância visível ao roteiro. Um

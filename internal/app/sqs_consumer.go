@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"strconv"
 	"time"
@@ -22,6 +23,7 @@ type SQSConsumer struct {
 	client            *sqs.Client
 	processor         *core.Processor
 	logger            *slog.Logger
+	metrics           *Metrics
 	cancel            context.CancelFunc
 	done              chan struct{}
 	queueURL          string
@@ -32,11 +34,12 @@ type SQSConsumer struct {
 	visibilityTimeout int32
 }
 
-func NewSQSConsumer(client *sqs.Client, processor *core.Processor, logger *slog.Logger) *SQSConsumer {
+func NewSQSConsumer(client *sqs.Client, processor *core.Processor, logger *slog.Logger, metrics *Metrics) *SQSConsumer {
 	return &SQSConsumer{
 		client:            client,
 		processor:         processor,
 		logger:            logger,
+		metrics:           metrics,
 		done:              make(chan struct{}),
 		queueName:         "wager-transactions.fifo",
 		afterCommit:       func(context.Context, sqsTypesMessage) {},
@@ -107,6 +110,10 @@ func (c *SQSConsumer) loop(ctx context.Context) {
 }
 
 func (c *SQSConsumer) scheduleRetry(ctx context.Context, message sqsTypesMessage) {
+	c.metrics.RecordRetry("sqs")
+	if receiveCount, err := strconv.Atoi(message.Attributes["ApproximateReceiveCount"]); err == nil && receiveCount >= 5 {
+		c.metrics.RecordDLQMessage()
+	}
 	visibilityTimeout := retryVisibilityTimeout(message.Attributes["ApproximateReceiveCount"])
 	if _, err := c.client.ChangeMessageVisibility(ctx, &sqs.ChangeMessageVisibilityInput{
 		QueueUrl:          aws.String(c.queueURL),
@@ -132,6 +139,7 @@ func retryVisibilityTimeout(receiveCount string) int32 {
 	return seconds
 }
 func (c *SQSConsumer) handle(ctx context.Context, message sqsTypesMessage) error {
+	startedAt := time.Now()
 	var envelope struct {
 		MessageID string `json:"messageId"`
 		Type      string `json:"type"`
@@ -166,7 +174,21 @@ func (c *SQSConsumer) handle(ctx context.Context, message sqsTypesMessage) error
 		kind = envelope.Data.Type
 	}
 	c.beforeProcess(ctx, message)
-	_, _, err = c.processor.ProcessInbox(ctx, "wager-transactions", envelope.MessageID, hex.EncodeToString(sum[:]), core.TransactionRequest{ProviderID: envelope.Data.ProviderID, ExternalTransactionID: envelope.Data.ExternalTransactionID, IdempotencyKey: envelope.Data.IdempotencyKey, PlayerID: envelope.Data.PlayerID, WalletID: envelope.Data.WalletID, RoundID: envelope.Data.RoundID, GameID: envelope.Data.GameID, Type: kind, Money: money, ReferenceExternalTransactionID: envelope.Data.ReferenceExternalTransactionID, OccurredAt: time.Now().UTC()})
+	result, duplicate, err := c.processor.ProcessInbox(ctx, "wager-transactions", envelope.MessageID, hex.EncodeToString(sum[:]), core.TransactionRequest{ProviderID: envelope.Data.ProviderID, ExternalTransactionID: envelope.Data.ExternalTransactionID, IdempotencyKey: envelope.Data.IdempotencyKey, PlayerID: envelope.Data.PlayerID, WalletID: envelope.Data.WalletID, RoundID: envelope.Data.RoundID, GameID: envelope.Data.GameID, Type: kind, Money: money, ReferenceExternalTransactionID: envelope.Data.ReferenceExternalTransactionID, OccurredAt: time.Now().UTC()})
+	if err != nil {
+		c.metrics.RecordTransaction("failed", false, time.Since(startedAt))
+		if errors.Is(err, core.ErrIdempotencyConflict) || errors.Is(err, core.ErrExternalIdentityConflict) {
+			c.metrics.RecordConcurrencyConflict()
+		}
+		return err
+	}
+	if duplicate {
+		c.metrics.RecordTransaction("duplicate", true, time.Since(startedAt))
+		c.logger.Info("SQS wager transaction deduplicated", "correlationId", envelope.Data.IdempotencyKey, "messageId", envelope.MessageID, "walletId", envelope.Data.WalletID, "providerId", envelope.Data.ProviderID)
+		return nil
+	}
+	c.metrics.RecordTransaction(string(result.Status), result.IdempotentReplay, time.Since(startedAt))
+	c.logger.Info("SQS wager transaction completed", "correlationId", envelope.Data.IdempotencyKey, "messageId", envelope.MessageID, "transactionId", result.TransactionID, "walletId", envelope.Data.WalletID, "providerId", envelope.Data.ProviderID, "status", result.Status, "idempotentReplay", result.IdempotentReplay)
 	return err
 }
 

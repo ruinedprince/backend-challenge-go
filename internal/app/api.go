@@ -70,15 +70,23 @@ func (a *API) CreateTransaction(writer http.ResponseWriter, request *http.Reques
 		writeAPIError(writer, http.StatusBadRequest, "INVALID_MONEY", err.Error())
 		return
 	}
+	startedAt := time.Now()
 	result, err := a.processor.Process(request.Context(), core.TransactionRequest{
 		ProviderID: body.ProviderID, ExternalTransactionID: body.ExternalTransactionID, IdempotencyKey: key,
 		PlayerID: body.PlayerID, WalletID: body.WalletID, RoundID: body.RoundID, GameID: body.GameID,
 		Type: body.Kind, Money: money, ReferenceExternalTransactionID: body.ReferenceExternalTransactionID, OccurredAt: time.Now().UTC(),
 	})
 	if err != nil {
+		a.metrics.RecordTransaction("failed", false, time.Since(startedAt))
+		if errors.Is(err, core.ErrIdempotencyConflict) || errors.Is(err, core.ErrExternalIdentityConflict) {
+			a.metrics.RecordConcurrencyConflict()
+		}
+		a.logger.Error("wager transaction failed", "correlationId", key, "walletId", body.WalletID, "providerId", body.ProviderID, "error", err)
 		a.writeProcessError(writer, err)
 		return
 	}
+	a.metrics.RecordTransaction(string(result.Status), result.IdempotentReplay, time.Since(startedAt))
+	a.logger.Info("wager transaction completed", "correlationId", key, "transactionId", result.TransactionID, "walletId", body.WalletID, "providerId", body.ProviderID, "status", result.Status, "idempotentReplay", result.IdempotentReplay)
 	writeJSON(writer, http.StatusOK, transactionResponse(result))
 }
 

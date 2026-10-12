@@ -22,9 +22,10 @@ const (
 // crashed publisher recoverable; a repeated send intentionally uses the same
 // event ID so downstream consumers can deduplicate at-least-once delivery.
 type OutboxPublisher struct {
-	pool   *pgxpool.Pool
-	client *sqs.Client
-	logger *slog.Logger
+	pool    *pgxpool.Pool
+	client  *sqs.Client
+	logger  *slog.Logger
+	metrics *Metrics
 	// afterSend exists solely to let integration tests stop a publisher in the
 	// narrow interval after SQS accepted an event and before PostgreSQL records
 	// its publication. Production publishers leave it nil.
@@ -42,8 +43,8 @@ type outboxEvent struct {
 	OccurredAt  time.Time
 }
 
-func NewOutboxPublisher(pool *pgxpool.Pool, client *sqs.Client, logger *slog.Logger) *OutboxPublisher {
-	return &OutboxPublisher{pool: pool, client: client, logger: logger, done: make(chan struct{})}
+func NewOutboxPublisher(pool *pgxpool.Pool, client *sqs.Client, logger *slog.Logger, metrics *Metrics) *OutboxPublisher {
+	return &OutboxPublisher{pool: pool, client: client, logger: logger, metrics: metrics, done: make(chan struct{})}
 }
 
 func RegisterOutboxPublisher(lifecycle fx.Lifecycle, publisher *OutboxPublisher) {
@@ -100,6 +101,7 @@ func (p *OutboxPublisher) publishAvailable(ctx context.Context) error {
 	}
 	for _, event := range events {
 		if err := p.publishOne(ctx, event); err != nil {
+			p.metrics.RecordRetry("outbox")
 			if releaseErr := p.releaseWithBackoff(ctx, event.ID); releaseErr != nil {
 				return fmt.Errorf("publish event %s: %w (schedule retry: %v)", event.ID, err, releaseErr)
 			}
@@ -186,6 +188,8 @@ func (p *OutboxPublisher) publishOne(ctx context.Context, event outboxEvent) err
 	if command.RowsAffected() != 1 {
 		return fmt.Errorf("confirm outbox publication: event %s was not pending", event.ID)
 	}
+	p.metrics.RecordOutboxPublication(time.Since(event.OccurredAt))
+	p.logger.Info("outbox event published", "eventId", event.ID, "eventType", event.EventType, "aggregateId", event.AggregateID, "correlationId", payload.CorrelationID)
 	return nil
 }
 

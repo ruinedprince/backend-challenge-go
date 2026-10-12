@@ -164,8 +164,18 @@ LocalStack com IAM enforcement.
 O desafio aceita HTTP e SQS como entradas equivalentes; ele não determina qual integração deve
 usar cada transporte. Uma implantação real pode documentar uma convenção por parceiro (por
 exemplo, resposta síncrona por HTTP e lotes por SQS), sem alterar a idempotência compartilhada.
-Balanceador, autoscaling, métricas e tracing distribuído também são decisões de infraestrutura
-futuras, não parte deste desafio.
+Balanceador, autoscaling, tracing distribuído e dashboards são decisões de infraestrutura futuras,
+não parte deste desafio.
+
+## Observabilidade
+
+O processo escreve logs JSON e registra, quando disponíveis, `correlationId`, `messageId`,
+`transactionId`, `walletId` e `providerId`; tokens, credenciais e corpos financeiros não entram
+nos logs. `GET /metrics` fornece sinais em formato Prometheus: resultados por status, duplicatas,
+retries de SQS/outbox, entregas destinadas à DLQ, conflitos, latência, atraso atual e histórico de
+publicação da outbox e divergências de reconciliação. Não há um servidor Prometheus acoplado ao
+desafio: um coletor externo pode consultar esse endpoint. `GET /health/live` confirma que o
+processo HTTP está ativo; `GET /health/ready` também confirma PostgreSQL e SQS.
 ## Consumo SQS e inbox
 
 O consumidor faz long polling de `wager-transactions.fifo`. Para cada envelope, calcula o

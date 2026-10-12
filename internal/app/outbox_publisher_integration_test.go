@@ -50,7 +50,7 @@ func TestOutboxPublisherThreeInstancesClaimWithoutDuplicates(t *testing.T) {
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			publisher := NewOutboxPublisher(pool, client, slog.Default())
+			publisher := NewOutboxPublisher(pool, client, slog.Default(), NewMetrics(pool))
 			publisher.queueURL = aws.ToString(queue.QueueUrl)
 			if err := publisher.publishAvailable(ctx); err != nil {
 				errorsFound <- err
@@ -78,7 +78,7 @@ func TestOutboxPublisherRecoversCommittedEventAfterRestart(t *testing.T) {
 
 	// This represents a process dying after the financial transaction committed
 	// its outbox row but before any publisher got a chance to run.
-	publisher := NewOutboxPublisher(pool, client, slog.Default())
+	publisher := NewOutboxPublisher(pool, client, slog.Default(), NewMetrics(pool))
 	publisher.queueURL = queueURL
 	if err := publisher.publishAvailable(ctx); err != nil {
 		t.Fatal(err)
@@ -95,7 +95,7 @@ func TestOutboxPublisherRecoversAfterSendBeforeConfirmation(t *testing.T) {
 
 	crashCtx, stopPublisher := context.WithCancel(ctx)
 	afterSendReached := make(chan struct{})
-	firstPublisher := NewOutboxPublisher(pool, client, slog.Default())
+	firstPublisher := NewOutboxPublisher(pool, client, slog.Default(), NewMetrics(pool))
 	firstPublisher.queueURL = queueURL
 	firstPublisher.afterSend = func(ctx context.Context, _ outboxEvent) error {
 		close(afterSendReached)
@@ -123,7 +123,7 @@ func TestOutboxPublisherRecoversAfterSendBeforeConfirmation(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE outbox_events SET claimed_at=now()-interval '31 seconds' WHERE id=$1`, eventID); err != nil {
 		t.Fatal(err)
 	}
-	secondPublisher := NewOutboxPublisher(pool, client, slog.Default())
+	secondPublisher := NewOutboxPublisher(pool, client, slog.Default(), NewMetrics(pool))
 	secondPublisher.queueURL = queueURL
 	if err := secondPublisher.publishAvailable(ctx); err != nil {
 		t.Fatal(err)

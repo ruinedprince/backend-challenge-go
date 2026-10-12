@@ -73,7 +73,7 @@ func TestSQSConsumerRedeliveryAfterCommitDoesNotDuplicateDebit(t *testing.T) {
 
 	processor := core.NewProcessor(pool)
 	committed := make(chan struct{})
-	first := NewSQSConsumer(client, processor, slog.Default())
+	first := NewSQSConsumer(client, processor, slog.Default(), NewMetrics(pool))
 	first.queueName = queueName
 	first.visibilityTimeout = 1
 	first.afterCommit = func(ctx context.Context, _ sqsTypesMessage) {
@@ -93,7 +93,7 @@ func TestSQSConsumerRedeliveryAfterCommitDoesNotDuplicateDebit(t *testing.T) {
 
 	redelivered := make(chan struct{})
 	deleted := make(chan struct{})
-	second := NewSQSConsumer(client, processor, slog.Default())
+	second := NewSQSConsumer(client, processor, slog.Default(), NewMetrics(pool))
 	second.queueName = queueName
 	second.visibilityTimeout = 1
 	second.afterCommit = func(context.Context, sqsTypesMessage) { close(redelivered) }
@@ -181,7 +181,7 @@ func TestSQSConsumerAndHTTPPathShareFinancialIdempotency(t *testing.T) {
 	start := make(chan struct{})
 	httpResult := make(chan core.TransactionResult, 1)
 	httpErrors := make(chan error, 1)
-	consumer := NewSQSConsumer(client, processor, slog.Default())
+	consumer := NewSQSConsumer(client, processor, slog.Default(), NewMetrics(pool))
 	consumer.queueName = queueName
 	consumer.beforeProcess = func(context.Context, sqsTypesMessage) {
 		close(sqsReady)
