@@ -18,7 +18,7 @@ type HTTPServer struct {
 	logger          *slog.Logger
 }
 
-func NewHTTPServer(config Config, logger *slog.Logger, readiness *Readiness, metrics *Metrics, api *API) *HTTPServer {
+func NewHTTPServer(config Config, logger *slog.Logger, readiness *Readiness, metrics *Metrics, telemetry *Telemetry, api *API) *HTTPServer {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", healthLive)
 	mux.HandleFunc("GET /health/ready", readiness.Handler)
@@ -32,7 +32,7 @@ func NewHTTPServer(config Config, logger *slog.Logger, readiness *Readiness, met
 	mux.HandleFunc("POST /wallets/{walletId}/reconciliation", api.ReconcileWallet)
 
 	return &HTTPServer{
-		server:          &http.Server{Addr: config.HTTPAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second},
+		server:          &http.Server{Addr: config.HTTPAddr, Handler: telemetry.HTTPMiddleware(mux), ReadHeaderTimeout: 5 * time.Second},
 		shutdownTimeout: config.ShutdownTimeout,
 		logger:          logger,
 	}

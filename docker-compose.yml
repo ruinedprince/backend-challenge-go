@@ -74,6 +74,13 @@ services:
       timeout: 5s
       retries: 12
 
+  jaeger:
+    image: jaegertracing/jaeger:2.6.0
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+
   migrate:
     image: migrate/migrate:v4.18.1
     profiles: ["tools"]

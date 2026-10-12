@@ -183,6 +183,14 @@ um coletor externo (por exemplo, CloudWatch, Loki ou ELK) deve reunir os fluxos 
 réplicas e anexar metadados da instância. Sem isso, investigar um mesmo `transactionId` exigiria
 procurar manualmente em processos diferentes, algo que se torna impraticável conforme as APIs
 escalam. Os identificadores estruturados já emitidos são o vínculo para essa coleta futura.
+## Tracing distribuído
+
+Cada requisição HTTP abre um trace OpenTelemetry e preserva um `traceparent` recebido do
+consumidor externo. Os spans são exportados por OTLP para o collector configurado em
+`OTEL_EXPORTER_OTLP_ENDPOINT`. O Compose local oferece Jaeger em `http://localhost:16686`;
+assim, uma chamada aos endpoints da API pode ser acompanhada visualmente sem depender de um
+serviço externo. Em produção, o mesmo endpoint pode apontar para um collector gerenciado.
+
 ## Consumo SQS e inbox
 
 O consumidor faz long polling de `wager-transactions.fifo`. Para cada envelope, calcula o

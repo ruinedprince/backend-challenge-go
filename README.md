@@ -532,6 +532,9 @@ curl http://localhost:8080/health/ready
 ```
 
 O Keycloak é exposto em `http://localhost:8081`, o LocalStack em `http://localhost:4566` e o
+Jaeger em `http://localhost:16686`. Após gerar qualquer chamada HTTP, selecione o serviço
+`wagering-api` no Jaeger para visualizar o trace da requisição. O endpoint OTLP é configurável
+por `OTEL_EXPORTER_OTLP_ENDPOINT` e aponta para o Jaeger local por padrão.
 Compose inicia três instâncias da mesma API em `http://localhost:8080`,
 `http://localhost:8082` e `http://localhost:8083`. Todas compartilham PostgreSQL, Keycloak e
 LocalStack, mas têm processos, memória e conexões próprios. As três portas são uma conveniência

@@ -10,6 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/fx"
 )
 
@@ -151,6 +153,9 @@ func (p *OutboxPublisher) claim(ctx context.Context, limit int32) ([]outboxEvent
 }
 
 func (p *OutboxPublisher) publishOne(ctx context.Context, event outboxEvent) error {
+	ctx, span := otel.Tracer("wagering-api").Start(ctx, "sqs.publish outbox event")
+	defer span.End()
+	span.SetAttributes(attribute.String("outbox.event.id", event.ID), attribute.String("outbox.event.type", event.EventType))
 	var payload struct {
 		CorrelationID string          `json:"correlationId"`
 		Data          json.RawMessage `json:"data"`

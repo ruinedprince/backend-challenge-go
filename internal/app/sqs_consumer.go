@@ -13,6 +13,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/fx"
 
 	"github.com/ruinedprince/backend-challenge-go/internal/core"
@@ -141,6 +143,9 @@ func retryVisibilityTimeout(receiveCount string) int32 {
 	return seconds
 }
 func (c *SQSConsumer) handle(ctx context.Context, message sqsTypesMessage) error {
+	ctx, span := otel.Tracer("wagering-api").Start(ctx, "sqs.process wager transaction")
+	defer span.End()
+	span.SetAttributes(attribute.String("messaging.message.id", aws.ToString(message.MessageId)))
 	startedAt := time.Now()
 	var envelope struct {
 		MessageID string `json:"messageId"`

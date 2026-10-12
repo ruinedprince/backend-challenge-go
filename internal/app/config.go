@@ -18,6 +18,7 @@ type Config struct {
 	AWSRegion        string
 	AWSAccessKeyID   string
 	AWSSecretKey     string
+	OTLPEndpoint     string
 }
 
 func LoadConfig() (Config, error) {
@@ -36,6 +37,7 @@ func LoadConfig() (Config, error) {
 		AWSRegion:        os.Getenv("AWS_REGION"),
 		AWSAccessKeyID:   os.Getenv("AWS_ACCESS_KEY_ID"),
 		AWSSecretKey:     os.Getenv("AWS_SECRET_ACCESS_KEY"),
+		OTLPEndpoint:     valueOrDefault("OTEL_EXPORTER_OTLP_ENDPOINT", "http://jaeger:4318"),
 	}
 
 	if config.DatabaseURL == "" || config.KeycloakIssuer == "" || config.InternalClientID == "" || config.SQSEndpointURL == "" {
