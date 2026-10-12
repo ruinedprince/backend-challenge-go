@@ -32,6 +32,7 @@ type SQSConsumer struct {
 	afterDelete       func(context.Context, sqsTypesMessage)
 	beforeProcess     func(context.Context, sqsTypesMessage)
 	visibilityTimeout int32
+	retryVisibility   func(string) int32
 }
 
 func NewSQSConsumer(client *sqs.Client, processor *core.Processor, logger *slog.Logger, metrics *Metrics) *SQSConsumer {
@@ -46,6 +47,7 @@ func NewSQSConsumer(client *sqs.Client, processor *core.Processor, logger *slog.
 		afterDelete:       func(context.Context, sqsTypesMessage) {},
 		beforeProcess:     func(context.Context, sqsTypesMessage) {},
 		visibilityTimeout: 30,
+		retryVisibility:   retryVisibilityTimeout,
 	}
 }
 func RegisterSQSConsumer(lifecycle fx.Lifecycle, consumer *SQSConsumer) {
@@ -114,7 +116,7 @@ func (c *SQSConsumer) scheduleRetry(ctx context.Context, message sqsTypesMessage
 	if receiveCount, err := strconv.Atoi(message.Attributes["ApproximateReceiveCount"]); err == nil && receiveCount >= 5 {
 		c.metrics.RecordDLQMessage()
 	}
-	visibilityTimeout := retryVisibilityTimeout(message.Attributes["ApproximateReceiveCount"])
+	visibilityTimeout := c.retryVisibility(message.Attributes["ApproximateReceiveCount"])
 	if _, err := c.client.ChangeMessageVisibility(ctx, &sqs.ChangeMessageVisibilityInput{
 		QueueUrl:          aws.String(c.queueURL),
 		ReceiptHandle:     message.ReceiptHandle,

@@ -507,10 +507,14 @@ Entregue código formatado com `gofmt` e dependências reproduzíveis.
 
 Após subir o ambiente com `docker compose up -d`, use `make verify` para executar os testes
 unitários, detector de corrida, análise estática e integração. `make integration-test` aplica as
-migrations e executa, em sequência, os cenários com PostgreSQL e LocalStack reais. Eles incluem
-50 replays concorrentes (um único lançamento), reentrega da inbox, referência pendente/expirada
-e três publishers disputando eventos da outbox, incluindo recuperação de uma reivindicação vencida,
-interrupção antes da publicação e interrupção entre o envio à SQS e a confirmação da outbox.
+migrations e executa, em sequência, os cenários com PostgreSQL, Keycloak e LocalStack reais. Eles
+incluem autenticação por token emitido pelo IdP, rejeição de token ausente, inválido ou expirado, isolamento
+entre provedores e bloqueio de operações internas. Também cobrem 50 replays concorrentes (um único
+lançamento), reentrega da inbox, cinco falhas consecutivas encaminhadas para a DLQ, referência
+pendente/expirada e três publishers disputando eventos da outbox, incluindo recuperação de uma
+reivindicação vencida, interrupção antes da publicação e interrupção entre o envio à SQS e a
+confirmação da outbox. O ciclo de vida completo do Fx também é verificado: início dos workers,
+encerramento do HTTP antes dos workers e liberação do pool de banco.
 
 ## Executando a solução
 

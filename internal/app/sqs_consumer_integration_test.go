@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	sqsTypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ruinedprince/backend-challenge-go/internal/core"
@@ -232,6 +235,66 @@ func TestSQSConsumerAndHTTPPathShareFinancialIdempotency(t *testing.T) {
 	if balance != 7500 || ledgerEntries != 1 || inboxEntries != 1 {
 		t.Fatalf("balance=%d ledgerEntries=%d inboxEntries=%d, want 7500/1/1", balance, ledgerEntries, inboxEntries)
 	}
+}
+
+func TestSQSConsumerMovesFiveFailuresToDLQ(t *testing.T) {
+	if os.Getenv("DATABASE_URL") == "" || os.Getenv("SQS_ENDPOINT_URL") == "" {
+		t.Skip("real SQS integration dependencies are required")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	client, err := NewSQSClient(Config{AWSRegion: os.Getenv("AWS_REGION"), AWSAccessKeyID: os.Getenv("AWS_ACCESS_KEY_ID"), AWSSecretKey: os.Getenv("AWS_SECRET_ACCESS_KEY"), SQSEndpointURL: os.Getenv("SQS_ENDPOINT_URL")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix := fmt.Sprintf("consumer-dlq-%d", time.Now().UnixNano())
+	dlq, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(prefix + "-dlq.fifo"), Attributes: map[string]string{"FifoQueue": "true", "ContentBasedDeduplication": "false"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dlqURL := aws.ToString(dlq.QueueUrl)
+	defer client.DeleteQueue(context.Background(), &sqs.DeleteQueueInput{QueueUrl: aws.String(dlqURL)})
+	attrs, err := client.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{QueueUrl: aws.String(dlqURL), AttributeNames: []sqsTypes.QueueAttributeName{sqsTypes.QueueAttributeNameQueueArn}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(prefix + ".fifo"), Attributes: map[string]string{"FifoQueue": "true", "ContentBasedDeduplication": "false", "RedrivePolicy": fmt.Sprintf(`{"deadLetterTargetArn":"%s","maxReceiveCount":"5"}`, attrs.Attributes["QueueArn"])}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	queueURL := aws.ToString(queue.QueueUrl)
+	defer client.DeleteQueue(context.Background(), &sqs.DeleteQueueInput{QueueUrl: aws.String(queueURL)})
+	if _, err = client.SendMessage(ctx, &sqs.SendMessageInput{QueueUrl: aws.String(queueURL), MessageBody: aws.String("{invalid-json"), MessageGroupId: aws.String("dlq"), MessageDeduplicationId: aws.String(prefix)}); err != nil {
+		t.Fatal(err)
+	}
+	metrics := NewMetrics(pool)
+	consumer := NewSQSConsumer(client, core.NewProcessor(pool), slog.Default(), metrics)
+	consumer.queueName = prefix + ".fifo"
+	consumer.retryVisibility = func(string) int32 { return 0 }
+	if err := consumer.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer consumer.Stop(context.Background())
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		out, receiveErr := client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: aws.String(dlqURL), WaitTimeSeconds: 1})
+		if receiveErr != nil {
+			t.Fatal(receiveErr)
+		}
+		if len(out.Messages) == 1 {
+			recorder := httptest.NewRecorder()
+			metrics.Handler(recorder, httptest.NewRequest("GET", "/metrics", nil))
+			if !strings.Contains(recorder.Body.String(), "wager_dlq_messages_total 1") {
+				t.Fatalf("DLQ metric missing: %s", recorder.Body.String())
+			}
+			return
+		}
+	}
+	t.Fatal("invalid message was not moved to the DLQ after five failures")
 }
 
 func waitForSignal(t *testing.T, signal <-chan struct{}, timeout time.Duration, description string) {
