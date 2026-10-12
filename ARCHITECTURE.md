@@ -111,6 +111,14 @@ Referência e reversão precisam ter o mesmo provedor, jogador, carteira, rodada
 `REFERENCE_TYPE_INVALID`, `REFERENCE_NOT_PROCESSABLE` e
 `INSUFFICIENT_FUNDS_FOR_REVERSAL`.
 
+Um `WIN` pode declarar a `BET` que originou o prêmio. Quando declarada, a referência precisa
+estar em `PROCESSED` e coincidir em provedor, jogador, carteira, rodada e moeda; o valor do
+prêmio pode ser diferente do valor apostado. A referência não encontrada, pendente, incompatível
+ou que não aponta para uma `BET` rejeita o `WIN`, respectivamente, com
+`WIN_REFERENCE_NOT_FOUND`, `WIN_REFERENCE_NOT_PROCESSABLE`, `WIN_REFERENCE_MISMATCH` ou
+`WIN_REFERENCE_TYPE_INVALID`. Ao contrário de reversões, um `WIN` não fica pendente: a
+referência é evidência do prêmio, não uma dependência para uma movimentação inversa futura.
+
 ## HTTP, OAuth/OIDC e isolamento por provedor
 
 O Keycloak emite tokens de client credentials para cada provedor. A API descobre as chaves

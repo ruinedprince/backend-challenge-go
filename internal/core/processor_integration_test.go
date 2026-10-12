@@ -213,6 +213,59 @@ func TestProcessorResolvesPendingReferenceAndExpiresMissingReference(t *testing.
 	}
 }
 
+func TestProcessorValidatesOptionalWinReference(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is required for PostgreSQL integration test")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if _, err := pool.Exec(ctx, "TRUNCATE outbox_events, inbox_messages, wallet_ledger_entries, wager_transactions, wallets CASCADE"); err != nil {
+		t.Fatal(err)
+	}
+	const walletID = "00000000-0000-0000-0000-000000000121"
+	const playerID = "00000000-0000-0000-0000-000000000122"
+	if _, err := pool.Exec(ctx, `INSERT INTO wallets (id, player_id, currency, balance_minor_units) VALUES ($1,$2,'BRL',10000)`, walletID, playerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO wallet_provider_access (wallet_id, provider_id) VALUES ($1,'provider-a')`, walletID); err != nil {
+		t.Fatal(err)
+	}
+	processor := NewProcessor(pool)
+	betMoney, err := domain.ParseExternalMoney("25.00", "BRL")
+	if err != nil {
+		t.Fatal(err)
+	}
+	winMoney, err := domain.ParseExternalMoney("40.00", "BRL")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := func(externalID string, kind domain.TransactionType, money domain.Money, reference string) TransactionRequest {
+		return TransactionRequest{ProviderID: "provider-a", ExternalTransactionID: externalID, IdempotencyKey: "provider-a:" + externalID, PlayerID: playerID, WalletID: walletID, RoundID: "round-win", GameID: "game-win", Type: kind, Money: money, ReferenceExternalTransactionID: reference, OccurredAt: time.Now().UTC()}
+	}
+	bet, err := processor.Process(ctx, request("bet-for-win", domain.TransactionBet, betMoney, ""))
+	if err != nil || bet.Status != domain.TransactionProcessed {
+		t.Fatalf("bet = %+v, %v", bet, err)
+	}
+	win, err := processor.Process(ctx, request("win-with-bet", domain.TransactionWin, winMoney, "bet-for-win"))
+	if err != nil || win.Status != domain.TransactionProcessed || win.Balance.String() != "115.00" {
+		t.Fatalf("win = %+v, %v", win, err)
+	}
+	var referenceID string
+	if err := pool.QueryRow(ctx, `SELECT reference_transaction_id FROM wager_transactions WHERE id=$1`, win.TransactionID).Scan(&referenceID); err != nil || referenceID != bet.TransactionID {
+		t.Fatalf("persisted win reference = %q, %v; want %q", referenceID, err, bet.TransactionID)
+	}
+
+	missing, err := processor.Process(ctx, request("win-with-missing-bet", domain.TransactionWin, winMoney, "missing-bet"))
+	if err != nil || missing.Status != domain.TransactionRejected || missing.FailureCode != "WIN_REFERENCE_NOT_FOUND" || missing.Balance.String() != "115.00" {
+		t.Fatalf("missing-reference win = %+v, %v", missing, err)
+	}
+}
+
 func TestProcessorFiftyConcurrentReplaysApplyOneMovement(t *testing.T) {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {

@@ -106,7 +106,7 @@ func (p *Processor) resolvePendingReference(ctx context.Context, id string) erro
 
 func (p *Processor) applyReversal(ctx context.Context, tx pgx.Tx, wallet *domain.Wallet, transaction *domain.WagerTransaction, now time.Time, previousAttempts int) (TransactionResult, error) {
 	input := transaction.Input()
-	reference, found, err := findReversalReference(ctx, tx, input.ProviderID, input.ReferenceExternalTransactionID)
+	reference, found, err := findTransactionReference(ctx, tx, input.ProviderID, input.ReferenceExternalTransactionID)
 	if err != nil {
 		return TransactionResult{}, err
 	}
@@ -114,10 +114,10 @@ func (p *Processor) applyReversal(ctx context.Context, tx pgx.Tx, wallet *domain
 		return p.deferReference(ctx, tx, wallet, transaction, now, previousAttempts)
 	}
 	if reference.State != domain.TransactionProcessed {
-		return p.rejectReversal(ctx, tx, wallet, transaction, now, "REFERENCE_NOT_PROCESSABLE", nil)
+		return p.rejectTransaction(ctx, tx, wallet, transaction, now, "REFERENCE_NOT_PROCESSABLE", nil)
 	}
 	if failureCode := validateReference(input, reference); failureCode != "" {
-		return p.rejectReversal(ctx, tx, wallet, transaction, now, failureCode, &reference.ID)
+		return p.rejectTransaction(ctx, tx, wallet, transaction, now, failureCode, &reference.ID)
 	}
 	if reference.Type == domain.TransactionBet {
 		var alreadyApplied bool
@@ -125,7 +125,7 @@ func (p *Processor) applyReversal(ctx context.Context, tx pgx.Tx, wallet *domain
 			return TransactionResult{}, err
 		}
 		if alreadyApplied {
-			return p.rejectReversal(ctx, tx, wallet, transaction, now, "REVERSAL_ALREADY_APPLIED", &reference.ID)
+			return p.rejectTransaction(ctx, tx, wallet, transaction, now, "REVERSAL_ALREADY_APPLIED", &reference.ID)
 		}
 	}
 
@@ -137,7 +137,7 @@ func (p *Processor) applyReversal(ctx context.Context, tx pgx.Tx, wallet *domain
 	}
 	if err != nil {
 		if errors.Is(err, domain.ErrInsufficientFunds) {
-			return p.rejectReversal(ctx, tx, wallet, transaction, now, "INSUFFICIENT_FUNDS_FOR_REVERSAL", &reference.ID)
+			return p.rejectTransaction(ctx, tx, wallet, transaction, now, "INSUFFICIENT_FUNDS_FOR_REVERSAL", &reference.ID)
 		}
 		return TransactionResult{}, err
 	}
@@ -164,7 +164,7 @@ func (p *Processor) applyReversal(ctx context.Context, tx pgx.Tx, wallet *domain
 
 func (p *Processor) deferReference(ctx context.Context, tx pgx.Tx, wallet *domain.Wallet, transaction *domain.WagerTransaction, now time.Time, previousAttempts int) (TransactionResult, error) {
 	if previousAttempts >= maxReferenceAttempts {
-		return p.rejectReversal(ctx, tx, wallet, transaction, now, "REFERENCE_NOT_FOUND", nil)
+		return p.rejectTransaction(ctx, tx, wallet, transaction, now, "REFERENCE_NOT_FOUND", nil)
 	}
 	firstAttempt := transaction.State() == domain.TransactionPending
 	if firstAttempt {
@@ -185,7 +185,7 @@ func (p *Processor) deferReference(ctx context.Context, tx pgx.Tx, wallet *domai
 	return TransactionResult{TransactionID: transaction.Input().ID, Status: transaction.State(), Balance: wallet.Snapshot().Balance}, nil
 }
 
-func (p *Processor) rejectReversal(ctx context.Context, tx pgx.Tx, wallet *domain.Wallet, transaction *domain.WagerTransaction, now time.Time, failureCode string, referenceID *string) (TransactionResult, error) {
+func (p *Processor) rejectTransaction(ctx context.Context, tx pgx.Tx, wallet *domain.Wallet, transaction *domain.WagerTransaction, now time.Time, failureCode string, referenceID *string) (TransactionResult, error) {
 	if err := transaction.TransitionTo(domain.TransactionRejected, now, failureCode); err != nil {
 		return TransactionResult{}, err
 	}
@@ -198,7 +198,30 @@ func (p *Processor) rejectReversal(ctx context.Context, tx pgx.Tx, wallet *domai
 	return TransactionResult{TransactionID: transaction.Input().ID, Status: transaction.State(), Balance: wallet.Snapshot().Balance, FailureCode: failureCode}, nil
 }
 
-func findReversalReference(ctx context.Context, tx pgx.Tx, providerID, externalID string) (reversalReference, bool, error) {
+// resolveWinReference verifies an optional WIN-to-BET link. Unlike a reversal,
+// a WIN is never held pending: its reference is supporting evidence, not a
+// prerequisite that can later change the direction or amount of the movement.
+func (p *Processor) resolveWinReference(ctx context.Context, tx pgx.Tx, input domain.ExternalTransactionInput) (*string, string, error) {
+	reference, found, err := findTransactionReference(ctx, tx, input.ProviderID, input.ReferenceExternalTransactionID)
+	if err != nil {
+		return nil, "", err
+	}
+	if !found {
+		return nil, "WIN_REFERENCE_NOT_FOUND", nil
+	}
+	if reference.State != domain.TransactionProcessed {
+		return &reference.ID, "WIN_REFERENCE_NOT_PROCESSABLE", nil
+	}
+	if input.ProviderID != reference.Provider || input.WalletID != reference.WalletID || input.PlayerID != reference.PlayerID || input.RoundID != reference.RoundID || input.Money.Currency() != reference.Money.Currency() {
+		return &reference.ID, "WIN_REFERENCE_MISMATCH", nil
+	}
+	if reference.Type != domain.TransactionBet {
+		return &reference.ID, "WIN_REFERENCE_TYPE_INVALID", nil
+	}
+	return &reference.ID, "", nil
+}
+
+func findTransactionReference(ctx context.Context, tx pgx.Tx, providerID, externalID string) (reversalReference, bool, error) {
 	var reference reversalReference
 	var amount int64
 	var currency string

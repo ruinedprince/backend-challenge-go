@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -141,12 +142,24 @@ func (p *Processor) apply(ctx context.Context, tx pgx.Tx, wallet *domain.Wallet,
 	var entry domain.WalletLedgerEntry
 	var hasLedger bool
 	var movementError error
+	var referenceTransactionID *string
 
 	switch input.Type {
 	case domain.TransactionBet:
 		entry, movementError = wallet.Debit(input.ID, input.Money, now)
 		hasLedger = movementError == nil
 	case domain.TransactionWin:
+		if strings.TrimSpace(input.ReferenceExternalTransactionID) != "" {
+			var failureCode string
+			var referenceErr error
+			referenceTransactionID, failureCode, referenceErr = p.resolveWinReference(ctx, tx, input)
+			if referenceErr != nil {
+				return TransactionResult{}, referenceErr
+			}
+			if failureCode != "" {
+				return p.rejectTransaction(ctx, tx, wallet, transaction, now, failureCode, referenceTransactionID)
+			}
+		}
 		entry, movementError = wallet.Credit(input.ID, input.Money, now)
 		hasLedger = movementError == nil
 	case domain.TransactionLoss:
@@ -184,7 +197,7 @@ func (p *Processor) apply(ctx context.Context, tx pgx.Tx, wallet *domain.Wallet,
 	if err := transaction.TransitionTo(domain.TransactionProcessed, now, ""); err != nil {
 		return TransactionResult{}, err
 	}
-	if err := finishTransaction(ctx, tx, transaction, wallet.Snapshot().Balance, wallet.Snapshot().Version, nil); err != nil {
+	if err := finishTransaction(ctx, tx, transaction, wallet.Snapshot().Balance, wallet.Snapshot().Version, referenceTransactionID); err != nil {
 		return TransactionResult{}, err
 	}
 	if err := insertWagerOutboxEvent(ctx, tx, "WagerTransactionProcessed", transaction, now); err != nil {
