@@ -540,6 +540,19 @@ O Prometheus fica em `http://localhost:9090` e coleta as três APIs. O Grafana f
 `http://localhost:3000` (admin/admin), já com o dashboard **Wagering Operations** provisionado.
 Ele apresenta transações, duplicatas, retries, DLQ, latência, atraso da outbox, conflitos e
 divergências de reconciliação.
+
+### Teste de carga opcional
+
+Com o Compose em execução, rode o cenário reproduzível abaixo. Ele abre uma carteira por VU,
+distribui apostas entre as três APIs e imprime throughput, taxa de erros e p50/p95/p99.
+
+```sh
+docker run --rm --network backend-challenge-go_default -v "$PWD:/src" -w /src \
+  grafana/k6:0.57.0 run load/k6-wagering.js
+```
+
+Use `-e VUS=20 -e DURATION=30s` para alterar a intensidade. Observe também o atraso da outbox e
+os conflitos no dashboard durante o teste.
 Compose inicia três instâncias da mesma API em `http://localhost:8080`,
 `http://localhost:8082` e `http://localhost:8083`. Todas compartilham PostgreSQL, Keycloak e
 LocalStack, mas têm processos, memória e conexões próprios. As três portas são uma conveniência
