@@ -118,7 +118,8 @@ make verify
 
 Esse comando roda testes unitários, detector de corrida, análise estática e integração com
 PostgreSQL/LocalStack reais. A integração cobre disputa de saldo, 50 replays paralelos,
-redelivery da inbox, referências pendentes/expiradas e três publishers concorrentes da outbox.
+reentrega SQS após commit antes da remoção da mensagem, referências pendentes/expiradas e três
+publishers concorrentes da outbox.
 
 ## Limitações conhecidas e evolução de produção
 

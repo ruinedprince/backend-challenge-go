@@ -1,4 +1,4 @@
-GO_DOCKER = docker run --rm -v "$(CURDIR):/src" -w /src golang:1.24-alpine
+GO_DOCKER = docker run --rm -v "$(CURDIR):/src" -w /src golang:1.24
 
 .PHONY: test race vet tidy migrate-up migrate-down schema-test integration-test verify
 
@@ -27,6 +27,6 @@ integration-test:
 	docker compose up -d postgres localstack keycloak
 	docker compose --profile tools run --rm migrate -path /migrations -database "postgres://challenge:challenge@postgres:5432/challenge?sslmode=disable" up
 	docker run --rm --network backend-challenge-go_default --env-file .env.example -v "$(CURDIR):/src" -w /src golang:1.24 go test ./internal/core -count=1
-	docker run --rm --network backend-challenge-go_default --env-file .env.example -v "$(CURDIR):/src" -w /src golang:1.24 go test ./internal/app -run 'TestOutboxPublisher' -count=1
+	docker run --rm --network backend-challenge-go_default --env-file .env.example -v "$(CURDIR):/src" -w /src golang:1.24 go test ./internal/app -run 'Test(OutboxPublisher|SQSConsumer)' -count=1
 
 verify: test race vet integration-test

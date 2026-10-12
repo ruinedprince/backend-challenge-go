@@ -18,22 +18,35 @@ import (
 )
 
 type SQSConsumer struct {
-	client    *sqs.Client
-	processor *core.Processor
-	logger    *slog.Logger
-	cancel    context.CancelFunc
-	done      chan struct{}
-	queueURL  string
+	client            *sqs.Client
+	processor         *core.Processor
+	logger            *slog.Logger
+	cancel            context.CancelFunc
+	done              chan struct{}
+	queueURL          string
+	queueName         string
+	afterCommit       func(context.Context, sqsTypesMessage)
+	afterDelete       func(context.Context, sqsTypesMessage)
+	visibilityTimeout int32
 }
 
 func NewSQSConsumer(client *sqs.Client, processor *core.Processor, logger *slog.Logger) *SQSConsumer {
-	return &SQSConsumer{client: client, processor: processor, logger: logger, done: make(chan struct{})}
+	return &SQSConsumer{
+		client:            client,
+		processor:         processor,
+		logger:            logger,
+		done:              make(chan struct{}),
+		queueName:         "wager-transactions.fifo",
+		afterCommit:       func(context.Context, sqsTypesMessage) {},
+		afterDelete:       func(context.Context, sqsTypesMessage) {},
+		visibilityTimeout: 30,
+	}
 }
 func RegisterSQSConsumer(lifecycle fx.Lifecycle, consumer *SQSConsumer) {
 	lifecycle.Append(fx.Hook{OnStart: consumer.Start, OnStop: consumer.Stop})
 }
 func (c *SQSConsumer) Start(ctx context.Context) error {
-	out, err := c.client.GetQueueUrl(ctx, &sqs.GetQueueUrlInput{QueueName: aws.String("wager-transactions.fifo")})
+	out, err := c.client.GetQueueUrl(ctx, &sqs.GetQueueUrlInput{QueueName: aws.String(c.queueName)})
 	if err != nil {
 		return err
 	}
@@ -60,7 +73,7 @@ func (c *SQSConsumer) loop(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		out, err := c.client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: aws.String(c.queueURL), MaxNumberOfMessages: 1, WaitTimeSeconds: 5, VisibilityTimeout: 30})
+		out, err := c.client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: aws.String(c.queueURL), MaxNumberOfMessages: 1, WaitTimeSeconds: 5, VisibilityTimeout: c.visibilityTimeout})
 		if err != nil {
 			if ctx.Err() == nil {
 				c.logger.Error("receive SQS message", "error", err)
@@ -72,10 +85,19 @@ func (c *SQSConsumer) loop(ctx context.Context) {
 				c.logger.Error("process SQS message", "messageId", aws.ToString(message.MessageId), "error", err)
 				continue
 			}
+			// The durable transaction, including inbox completion, is already committed.
+			// Keeping this seam here lets the integration test simulate a process death
+			// in the narrow window before DeleteMessage.
+			c.afterCommit(ctx, message)
+			if ctx.Err() != nil {
+				return
+			}
 			_, err = c.client.DeleteMessage(ctx, &sqs.DeleteMessageInput{QueueUrl: aws.String(c.queueURL), ReceiptHandle: message.ReceiptHandle})
 			if err != nil {
 				c.logger.Error("delete processed SQS message", "error", err)
+				continue
 			}
+			c.afterDelete(ctx, message)
 		}
 	}
 }
