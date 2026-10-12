@@ -170,10 +170,15 @@ futuras, não parte deste desafio.
 
 O consumidor faz long polling de `wager-transactions.fifo`. Para cada envelope, calcula o
 hash do corpo, grava a inbox e executa o mesmo caso de uso financeiro na mesma transação SQL.
-A mensagem só é removida da SQS após o commit; falhas ficam invisíveis por 30 segundos e são
-tentadas novamente, chegando à DLQ após cinco recebimentos. Reentrega com o mesmo `messageId`
+A mensagem só é removida da SQS após o commit; falhas transitórias recebem visibilidade de 30,
+60, 120, 240 e 300 segundos conforme o número de recebimentos, chegando à DLQ após cinco
+recebimentos. Reentrega com o mesmo `messageId`
 é um no-op; o mesmo ID com hash diferente é conflito auditável. No encerramento, o worker para
 de buscar mensagens e aguarda o polling ativo terminar.
+
+Produtores externos enviam cada operação com `MessageGroupId=walletId`, para preservar a ordem
+por carteira e permitir paralelismo entre carteiras, e `MessageDeduplicationId=messageId` do
+envelope. Essas proteções FIFO não substituem a inbox e a idempotência persistida.
 
 ## Publicação pela outbox
 

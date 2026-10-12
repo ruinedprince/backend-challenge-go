@@ -374,10 +374,21 @@ Exemplo de corpo de mensagem:
 
 HTTP e SQS devem compartilhar o caso de uso e as garantias de idempotência financeira. Na entrada por SQS, a chave é `data.idempotencyKey`, com deduplicação adicional pela inbox.
 
+Para enviar uma operação à FIFO `wager-transactions.fifo`, o produtor externo deve usar:
+
+| Campo SQS | Valor | Motivo |
+| --- | --- | --- |
+| `MessageGroupId` | `data.walletId` | preserva a ordem das operações da mesma carteira, sem bloquear carteiras diferentes |
+| `MessageDeduplicationId` | `messageId` do envelope | evita aceite repetido pela SQS na janela de deduplicação da FIFO |
+
+Esses campos são uma primeira proteção de transporte. A proteção financeira definitiva continua
+sendo a inbox por `messageId` e a idempotência persistida no PostgreSQL.
+
 - Use o `messageId` do envelope como identidade durável da mensagem para o consumidor e verifique seu hash em reentregas.
 - Remova a mensagem da fila somente após o commit do seu tratamento durável.
 - Rejeições de negócio confirmadas são terminais e permitem a remoção da mensagem.
-- Falhas transitórias exigem retry com backoff; erros permanentes ou tentativas esgotadas devem chegar à DLQ.
+- Falhas transitórias atualizam a visibilidade da mensagem com backoff exponencial de 30, 60,
+  120, 240 e 300 segundos; após cinco recebimentos, o redrive da SQS a envia à DLQ.
 - Documente limites de tentativas, visibility timeout e tratamento de mensagens inválidas.
 - Em `SIGTERM`, pare de buscar trabalho e conclua o processamento em andamento dentro do prazo, ou libere sua visibilidade para reentrega segura.
 

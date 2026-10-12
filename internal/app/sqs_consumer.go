@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -73,7 +74,7 @@ func (c *SQSConsumer) loop(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		out, err := c.client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: aws.String(c.queueURL), MaxNumberOfMessages: 1, WaitTimeSeconds: 5, VisibilityTimeout: c.visibilityTimeout})
+		out, err := c.client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: aws.String(c.queueURL), MaxNumberOfMessages: 1, WaitTimeSeconds: 5, VisibilityTimeout: c.visibilityTimeout, MessageSystemAttributeNames: []types.MessageSystemAttributeName{types.MessageSystemAttributeNameApproximateReceiveCount}})
 		if err != nil {
 			if ctx.Err() == nil {
 				c.logger.Error("receive SQS message", "error", err)
@@ -83,6 +84,7 @@ func (c *SQSConsumer) loop(ctx context.Context) {
 		for _, message := range out.Messages {
 			if err := c.handle(ctx, message); err != nil {
 				c.logger.Error("process SQS message", "messageId", aws.ToString(message.MessageId), "error", err)
+				c.scheduleRetry(ctx, message)
 				continue
 			}
 			// The durable transaction, including inbox completion, is already committed.
@@ -100,6 +102,32 @@ func (c *SQSConsumer) loop(ctx context.Context) {
 			c.afterDelete(ctx, message)
 		}
 	}
+}
+
+func (c *SQSConsumer) scheduleRetry(ctx context.Context, message sqsTypesMessage) {
+	visibilityTimeout := retryVisibilityTimeout(message.Attributes["ApproximateReceiveCount"])
+	if _, err := c.client.ChangeMessageVisibility(ctx, &sqs.ChangeMessageVisibilityInput{
+		QueueUrl:          aws.String(c.queueURL),
+		ReceiptHandle:     message.ReceiptHandle,
+		VisibilityTimeout: visibilityTimeout,
+	}); err != nil && ctx.Err() == nil {
+		c.logger.Error("schedule SQS retry", "messageId", aws.ToString(message.MessageId), "error", err)
+	}
+}
+
+func retryVisibilityTimeout(receiveCount string) int32 {
+	count, err := strconv.Atoi(receiveCount)
+	if err != nil || count < 1 {
+		count = 1
+	}
+	if count > 5 {
+		count = 5
+	}
+	seconds := int32(30) * (1 << (count - 1))
+	if seconds > 300 {
+		return 300
+	}
+	return seconds
 }
 func (c *SQSConsumer) handle(ctx context.Context, message sqsTypesMessage) error {
 	var envelope struct {
