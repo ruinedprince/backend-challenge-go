@@ -22,12 +22,16 @@ const (
 // crashed publisher recoverable; a repeated send intentionally uses the same
 // event ID so downstream consumers can deduplicate at-least-once delivery.
 type OutboxPublisher struct {
-	pool     *pgxpool.Pool
-	client   *sqs.Client
-	logger   *slog.Logger
-	cancel   context.CancelFunc
-	done     chan struct{}
-	queueURL string
+	pool   *pgxpool.Pool
+	client *sqs.Client
+	logger *slog.Logger
+	// afterSend exists solely to let integration tests stop a publisher in the
+	// narrow interval after SQS accepted an event and before PostgreSQL records
+	// its publication. Production publishers leave it nil.
+	afterSend func(context.Context, outboxEvent) error
+	cancel    context.CancelFunc
+	done      chan struct{}
+	queueURL  string
 }
 
 type outboxEvent struct {
@@ -169,6 +173,11 @@ func (p *OutboxPublisher) publishOne(ctx context.Context, event outboxEvent) err
 	}
 	if _, err = p.client.SendMessage(ctx, &sqs.SendMessageInput{QueueUrl: aws.String(p.queueURL), MessageBody: aws.String(string(body)), MessageGroupId: aws.String(event.AggregateID), MessageDeduplicationId: aws.String(event.ID)}); err != nil {
 		return fmt.Errorf("send SQS message: %w", err)
+	}
+	if p.afterSend != nil {
+		if err := p.afterSend(ctx, event); err != nil {
+			return err
+		}
 	}
 	command, err := p.pool.Exec(ctx, `UPDATE outbox_events SET published_at = now(), claimed_at = NULL WHERE id = $1 AND published_at IS NULL`, event.ID)
 	if err != nil {

@@ -509,7 +509,8 @@ Após subir o ambiente com `docker compose up -d`, use `make verify` para execut
 unitários, detector de corrida, análise estática e integração. `make integration-test` aplica as
 migrations e executa, em sequência, os cenários com PostgreSQL e LocalStack reais. Eles incluem
 50 replays concorrentes (um único lançamento), reentrega da inbox, referência pendente/expirada
-e três publishers disputando eventos da outbox, incluindo recuperação de uma reivindicação vencida.
+e três publishers disputando eventos da outbox, incluindo recuperação de uma reivindicação vencida,
+interrupção antes da publicação e interrupção entre o envio à SQS e a confirmação da outbox.
 
 ## Executando a solução
 
