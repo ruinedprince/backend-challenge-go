@@ -577,9 +577,28 @@ Para reproduzir a demonstração de concorrência entre as três instâncias:
 pwsh -File .\scripts\demo-multiple-instances.ps1
 ```
 
-O roteiro e os resultados esperados estão detalhados em [`DEMO.md`](DEMO.md). Balanceador de
-carga e autoscaling não são requisitos do desafio e permanecem explicitamente fora deste
-ambiente local; são evoluções de infraestrutura para uma futura operação em produção.
+O roteiro e os resultados esperados estão detalhados em [`DEMO.md`](DEMO.md).
+
+## Limitações conhecidas e evoluções para produção
+
+Os pontos abaixo não são requisitos pendentes do desafio; são escolhas de escopo para manter a
+demonstração local reproduzível e indicam como o sistema evoluiria em uma operação real:
+
+- **Balanceamento e autoscaling:** as três APIs são réplicas estáticas, expostas em portas distintas
+  para demonstrar concorrência. Em produção, um balanceador distribuiria o tráfego e uma plataforma
+  de orquestração ajustaria a quantidade de réplicas conforme carga e capacidade.
+- **Logs centralizados:** cada réplica escreve JSON em seu próprio `stdout`. Um coletor como
+  CloudWatch, Loki ou ELK deve reunir esses logs e permitir buscar um mesmo `transactionId` entre
+  todas as réplicas.
+- **Tracing pela mensageria:** Jaeger permite inspecionar HTTP, consumo SQS e publicação da outbox,
+  mas o contexto de trace ainda não é propagado dentro da mensagem SQS. Propagar `traceparent` nos
+  atributos da mensagem conectaria todo o caminho da mesma aposta em um único trace.
+- **Contrato de entrada:** HTTP e SQS são suportados como entradas equivalentes porque o enunciado
+  não define quando cada integração deve ser usada. Uma integração real deve documentar quais
+  parceiros e quais fluxos usam resposta síncrona HTTP ou processamento assíncrono por fila.
+- **Capacidade de produção:** o k6 valida concorrência e latência no Docker local; ele não estabelece
+  uma capacidade máxima universal. Essa medição deve ser repetida em infraestrutura semelhante à
+  produção, com metas de capacidade definidas pelo negócio.
 
 O realm importado tem os clientes de demonstração `provider-a` (secret
 `provider-a-secret`) e `wallet-service` (secret `wallet-service-secret`). O primeiro registra

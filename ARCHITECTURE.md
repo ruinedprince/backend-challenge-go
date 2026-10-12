@@ -173,8 +173,9 @@ O processo escreve logs JSON e registra, quando disponíveis, `correlationId`, `
 `transactionId`, `walletId` e `providerId`; tokens, credenciais e corpos financeiros não entram
 nos logs. `GET /metrics` fornece sinais em formato Prometheus: resultados por status, duplicatas,
 retries de SQS/outbox, entregas destinadas à DLQ, conflitos, latência, atraso atual e histórico de
-publicação da outbox e divergências de reconciliação. Não há um servidor Prometheus acoplado ao
-desafio: um coletor externo pode consultar esse endpoint. `GET /health/live` confirma que o
+publicação da outbox e divergências de reconciliação. O Compose inclui Prometheus e Grafana para
+coletar e visualizar esses sinais localmente; em produção, o mesmo endpoint pode ser coletado por
+uma plataforma de observabilidade gerenciada. `GET /health/live` confirma que o
 processo HTTP está ativo; `GET /health/ready` também confirma PostgreSQL e SQS.
 
 No Compose local, cada réplica escreve seu JSON em `stdout` e o Docker o mantém por container.
@@ -197,6 +198,23 @@ Prometheus coleta `/metrics` das três réplicas a cada cinco segundos. Grafana 
 o dashboard `Wagering Operations`, que agrega os contadores de cada réplica e exibe os principais
 sinais financeiros e assíncronos. Ambos são serviços locais do Compose, portanto não fazem parte
 do binário nem são necessários para o processamento das apostas.
+
+## Limitações e evolução para produção
+
+As réplicas locais usam portas fixas e não incluem balanceador ou autoscaling; ambos pertencem à
+camada de infraestrutura de uma operação escalável. Os logs JSON ficam separados por container e
+devem ser centralizados por um coletor externo, preservando `transactionId` e `correlationId` para
+busca entre réplicas.
+
+O tracing atual preserva `traceparent` em chamadas HTTP e cria spans para consumo SQS e publicação
+da outbox. O contexto ainda não atravessa os atributos da mensagem, portanto essas etapas podem
+ser inspecionadas, mas não aparecem como uma única árvore ponta a ponta. Uma integração futura
+deve injetar o contexto OpenTelemetry ao publicar na SQS e extraí-lo no consumidor.
+
+HTTP e SQS são entradas equivalentes por decisão do enunciado, não por uma regra de produto. Uma
+implantação real deve definir e versionar esse contrato por parceiro e fluxo. Por fim, k6 prova o
+comportamento concorrente no Docker local, mas a capacidade máxima deve ser medida sob uma
+infraestrutura semelhante à de produção e metas de negócio explícitas.
 
 ## Partidas dobradas
 
