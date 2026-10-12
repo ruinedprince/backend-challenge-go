@@ -505,9 +505,20 @@ Entregue código formatado com `gofmt` e dependências reproduzíveis.
 
 ## Verificação local
 
-Após subir o ambiente com `docker compose up -d`, use `make verify` para executar os testes
-unitários, detector de corrida, análise estática e integração. `make integration-test` aplica as
-migrations e executa, em sequência, os cenários com PostgreSQL, Keycloak e LocalStack reais. Eles
+Após subir o ambiente com `docker compose up -d --build`, execute os comandos abaixo. Eles usam a
+imagem oficial do Go, portanto não exigem uma instalação local da linguagem:
+
+```powershell
+docker run --rm -v "${PWD}:/src" -w /src golang:1.24 go test ./...
+docker run --rm -v "${PWD}:/src" -w /src golang:1.24 go test -race ./...
+docker run --rm -v "${PWD}:/src" -w /src golang:1.24 go vet ./...
+docker compose --profile tools run --rm migrate -path /migrations -database "postgres://challenge:challenge@postgres:5432/challenge?sslmode=disable" up
+docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U challenge -d challenge -f - < db/tests/financial_schema.sql
+docker run --rm --network backend-challenge-go_default --env-file .env.example -v "${PWD}:/src" -w /src golang:1.24 go test ./internal/core -count=1
+docker run --rm --network backend-challenge-go_default --env-file .env.example -e MULTI_INSTANCE_API_URLS=http://api-a:8080,http://api-b:8080,http://api-c:8080 -v "${PWD}:/src" -w /src golang:1.24 go test ./internal/app -run 'Test(APIAuthenticationAndInternalAuthorizationWithKeycloak|ApplicationFxLifecycleStartsAndStopsWorkers|OutboxPublisher|SQSConsumer|ThreeAPIInstances)' -count=1
+```
+
+Os últimos quatro comandos aplicam as migrations e executam, em sequência, os cenários com PostgreSQL, Keycloak e LocalStack reais. Eles
 incluem autenticação por token emitido pelo IdP, rejeição de token ausente, inválido ou expirado, isolamento
 entre provedores e bloqueio de operações internas. Também cobrem 50 replays concorrentes (um único
 lançamento), reentrega da inbox, cinco falhas consecutivas encaminhadas para a DLQ, referência

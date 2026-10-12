@@ -31,11 +31,11 @@ responsabilidade da infraestrutura em uma implantação de produção.
 
 ## Migrations
 
-As migrations são aplicadas pelo container `migrate` via `make migrate-up` e revertidas
-uma a uma com `make migrate-down`. `000001_bootstrap` é propositalmente neutra: ela
+As migrations são aplicadas pelo container `migrate` com `docker compose --profile tools run --rm migrate ... up`
+e revertidas uma a uma substituindo `up` por `down 1`. `000001_bootstrap` é propositalmente neutra: ela
 valida a cadeia de migração antes que `000002_financial_schema` introduza o schema
 financeiro. `000004_pending_references` adiciona a agenda durável das reversões pendentes.
-`make schema-test` executa um roteiro SQL contra o PostgreSQL real para confirmar a
+O comando `psql` documentado no README executa um roteiro SQL contra o PostgreSQL real para confirmar a
 unicidade de carteira, a imutabilidade do ledger e a fórmula do saldo.
 
 ## Domínio financeiro

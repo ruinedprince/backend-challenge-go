@@ -113,19 +113,23 @@ docker compose down
 ## 6. Evidências automatizadas
 
 ```powershell
-make verify
+docker run --rm -v "${PWD}:/src" -w /src golang:1.24 go test ./...
+docker run --rm -v "${PWD}:/src" -w /src golang:1.24 go test -race ./...
+docker run --rm -v "${PWD}:/src" -w /src golang:1.24 go vet ./...
 ```
 
-Esse comando roda testes unitários, detector de corrida, análise estática e integração com
-PostgreSQL/LocalStack reais. A integração cobre disputa de saldo, 50 replays paralelos,
+Esses comandos rodam testes unitários, detector de corrida e análise estática. Os comandos de
+integração com PostgreSQL, Keycloak e LocalStack reais estão na seção **Verificação local** do
+README. A integração cobre disputa de saldo, 50 replays paralelos,
 reentrega SQS após commit antes da remoção da mensagem, a mesma operação por HTTP e SQS sem
 duplicar débito, referências pendentes/expiradas e três publishers concorrentes da outbox.
 
 ## Limitações conhecidas e evolução de produção
 
 - `GET /metrics` expõe métricas compatíveis com Prometheus para resultados, duplicatas, retries,
-  DLQ, conflitos, latência, atraso da outbox e divergências. Um servidor Prometheus, dashboards e
-  tracing distribuído permanecem como evolução de produção.
+  DLQ, conflitos, latência, atraso da outbox e divergências. Prometheus, Grafana e Jaeger são
+  incluídos no Compose local; centralização de logs, balanceador de carga e autoscaling permanecem
+  como evoluções de produção.
 - Cada réplica local escreve logs JSON separadamente em seu `stdout`. Em produção escalável, um
   coletor central (como CloudWatch, Loki ou ELK) deve agregá-los com metadados da instância; sem
   isso, rastrear uma operação entre réplicas se torna impraticável.
