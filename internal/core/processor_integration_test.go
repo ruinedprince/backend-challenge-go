@@ -266,6 +266,52 @@ func TestProcessorValidatesOptionalWinReference(t *testing.T) {
 	}
 }
 
+func TestProcessorPaginatesLedgerWithOpaqueCursor(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is required for PostgreSQL integration test")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if _, err := pool.Exec(ctx, "TRUNCATE outbox_events, inbox_messages, wallet_ledger_entries, wager_transactions, wallets CASCADE"); err != nil {
+		t.Fatal(err)
+	}
+	const walletID = "00000000-0000-0000-0000-000000000131"
+	const playerID = "00000000-0000-0000-0000-000000000132"
+	if _, err := pool.Exec(ctx, `INSERT INTO wallets (id, player_id, currency, balance_minor_units) VALUES ($1,$2,'BRL',0)`, walletID, playerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO wallet_provider_access (wallet_id, provider_id) VALUES ($1,'provider-a')`, walletID); err != nil {
+		t.Fatal(err)
+	}
+	processor := NewProcessor(pool)
+	money, err := domain.ParseExternalMoney("1.00", "BRL")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, externalID := range []string{"win-page-1", "win-page-2", "win-page-3"} {
+		result, err := processor.Process(ctx, TransactionRequest{ProviderID: "provider-a", ExternalTransactionID: externalID, IdempotencyKey: "provider-a:" + externalID, PlayerID: playerID, WalletID: walletID, RoundID: "round-page", GameID: "game-page", Type: domain.TransactionWin, Money: money, OccurredAt: time.Now().UTC()})
+		if err != nil || result.Status != domain.TransactionProcessed {
+			t.Fatalf("process %s = %+v, %v", externalID, result, err)
+		}
+	}
+	first, err := processor.ListLedgerInternal(ctx, walletID, "", 2)
+	if err != nil || len(first.Entries) != 2 || first.NextCursor == "" {
+		t.Fatalf("first page = %+v, %v", first, err)
+	}
+	second, err := processor.ListLedgerInternal(ctx, walletID, first.NextCursor, 2)
+	if err != nil || len(second.Entries) != 1 || second.NextCursor != "" {
+		t.Fatalf("second page = %+v, %v", second, err)
+	}
+	if first.Entries[0].TransactionID == second.Entries[0].TransactionID || first.Entries[1].TransactionID == second.Entries[0].TransactionID {
+		t.Fatal("cursor page repeated a ledger entry")
+	}
+}
+
 func TestProcessorFiftyConcurrentReplaysApplyOneMovement(t *testing.T) {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {

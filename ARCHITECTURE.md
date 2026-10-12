@@ -75,6 +75,13 @@ append-only. Inbox e outbox já estão persistidos no schema: a primeira dedupli
 agendamento de retry. O caso de uso grava carteira, transação, ledger e outbox na mesma
 transação SQL.
 
+A leitura do ledger usa cursor opaco formado pela posição estável `(created_at, id)`, em ordem
+decrescente. A API codifica essa posição e devolve `nextCursor`; consumidores apenas a reenviam,
+sem depender de sua representação. A reconciliação abre uma transação PostgreSQL de leitura em
+`REPEATABLE READ`, para que saldo armazenado e soma do ledger venham da mesma fotografia. Quando
+encontra divergência, registra log JSON com os valores comparados e incrementa
+`wallet_reconciliation_divergences_total`, disponível em `GET /metrics`.
+
 ## Processamento financeiro e concorrência
 
 `internal/core.Processor` é o caso de uso compartilhado por futuras entradas HTTP e

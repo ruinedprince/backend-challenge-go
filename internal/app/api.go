@@ -3,7 +3,9 @@ package app
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,10 +19,12 @@ import (
 type API struct {
 	processor *core.Processor
 	verifier  *auth.Verifier
+	logger    *slog.Logger
+	metrics   *Metrics
 }
 
-func NewAPI(processor *core.Processor, verifier *auth.Verifier) *API {
-	return &API{processor: processor, verifier: verifier}
+func NewAPI(processor *core.Processor, verifier *auth.Verifier, logger *slog.Logger, metrics *Metrics) *API {
+	return &API{processor: processor, verifier: verifier, logger: logger, metrics: metrics}
 }
 
 func (a *API) CreateTransaction(writer http.ResponseWriter, request *http.Request) {
@@ -153,12 +157,25 @@ func (a *API) GetLedger(writer http.ResponseWriter, request *http.Request) {
 	if !ok || !a.requireInternal(writer, principal) {
 		return
 	}
-	entries, err := a.processor.ListLedgerInternal(request.Context(), request.PathValue("walletId"), 50)
+	limit := 50
+	if rawLimit := request.URL.Query().Get("limit"); rawLimit != "" {
+		var err error
+		limit, err = strconv.Atoi(rawLimit)
+		if err != nil || limit < 1 || limit > 50 {
+			writeAPIError(writer, http.StatusBadRequest, "INVALID_LEDGER_PAGE", "limit must be between 1 and 50")
+			return
+		}
+	}
+	page, err := a.processor.ListLedgerInternal(request.Context(), request.PathValue("walletId"), request.URL.Query().Get("cursor"), limit)
 	if err != nil {
+		if errors.Is(err, core.ErrInvalidLedgerCursor) {
+			writeAPIError(writer, http.StatusBadRequest, "INVALID_LEDGER_PAGE", "cursor is invalid")
+			return
+		}
 		a.writeWalletError(writer, err)
 		return
 	}
-	writeJSON(writer, http.StatusOK, map[string]any{"entries": entries})
+	writeJSON(writer, http.StatusOK, map[string]any{"entries": page.Entries, "nextCursor": page.NextCursor})
 }
 
 func (a *API) ReconcileWallet(writer http.ResponseWriter, request *http.Request) {
@@ -172,7 +189,12 @@ func (a *API) ReconcileWallet(writer http.ResponseWriter, request *http.Request)
 		return
 	}
 	difference, _ := wallet.Balance.Subtract(calculated)
-	writeJSON(writer, http.StatusOK, map[string]any{"walletId": wallet.ID, "storedBalance": wallet.Balance, "calculatedBalance": calculated, "difference": difference, "consistent": difference.IsZero(), "checkedEntries": count})
+	consistent := difference.IsZero()
+	if !consistent {
+		a.metrics.RecordReconciliationDivergence()
+		a.logger.Error("wallet reconciliation divergence", "walletId", wallet.ID, "storedBalance", wallet.Balance.String(), "calculatedBalance", calculated.String(), "difference", difference.String())
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"walletId": wallet.ID, "storedBalance": wallet.Balance, "calculatedBalance": calculated, "difference": difference, "consistent": consistent, "checkedEntries": count})
 }
 
 func (a *API) writeTransactionView(writer http.ResponseWriter, view core.TransactionView, err error) {

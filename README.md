@@ -241,7 +241,11 @@ GET /wagering/transactions/:transactionId
 GET /providers/:providerId/wagering/transactions/:externalTransactionId
 ```
 
-A paginação do ledger deve usar cursor opaco e ordenação estável. As consultas de transação devem permitir acompanhar pendências e consultar códigos de rejeição ou falha.
+A paginação do ledger usa cursor opaco e ordenação estável por `createdAt` e identificador do
+lançamento. A resposta contém `entries` e `nextCursor`; envie este último como `cursor` na próxima
+requisição. `limit` é opcional e deve estar entre 1 e 50. O cursor é apenas um marcador devolvido
+pela API: consumidores não devem interpretá-lo ou construí-lo. As consultas de transação permitem
+acompanhar pendências e consultar códigos de rejeição ou falha.
 
 ### Envio de operação
 
@@ -286,7 +290,24 @@ Persista um hash determinístico dos campos de negócio, usando JSON canônico c
 - Uma operação financeira identificada por `(providerId, externalTransactionId)` não pode ser reaplicada usando outra chave.
 - Para operações concluídas, o replay deve devolver o saldo observado no processamento original, mesmo que a carteira já tenha recebido outras movimentações.
 
-Documente os códigos HTTP e os corpos de resposta para entrada inválida, conflito, rejeição de negócio, processamento pendente e indisponibilidade transitória. Essas situações precisam ser distinguíveis pelo contrato.
+### Respostas HTTP
+
+| Situação | HTTP | Corpo relevante |
+| --- | ---: | --- |
+| Carteira criada | `201` | carteira com saldo e versão inicial |
+| Operação concluída | `200` | `status: "PROCESSED"` e saldo observado |
+| Rejeição de negócio | `200` | `status: "REJECTED"` e `failureCode` estável |
+| Espera por referência | `200` | `status: "PENDING_REFERENCE"` |
+| Entrada inválida, dinheiro inválido, cursor/limite inválido | `400` | `{ "code", "message" }` |
+| Token ausente ou inválido | `401` | `{ "code": "UNAUTHORIZED", "message" }` |
+| Identidade sem acesso | `403` | `{ "code", "message" }` |
+| Carteira ou transação inexistente | `404` | `{ "code", "message" }` |
+| Conflito de carteira ou idempotência | `409` | `{ "code", "message" }` |
+| Falha transitória de infraestrutura | `503` | `{ "code": "TRANSIENT_UNAVAILABLE", "message" }` |
+
+`REJECTED` e `PENDING_REFERENCE` usam `200` porque a solicitação foi recebida e teve um resultado
+de negócio durável; o campo `status` distingue esses casos de sucesso financeiro. Erros de formato,
+autorização ou infraestrutura usam seus respectivos códigos HTTP.
 
 ### Reconciliação
 
@@ -307,15 +328,21 @@ Exemplo considerando apenas a abertura e a aposta apresentadas acima:
 }
 ```
 
-Reconstrua o saldo a partir do ledger, incluindo a abertura, e compare os valores em uma visão consistente dos dados. `difference` é o saldo armazenado menos o saldo reconstruído.
+Reconstrua o saldo a partir do ledger, incluindo a abertura, e compare os valores em uma visão
+consistente dos dados. A implementação abre uma transação somente de leitura com fotografia
+consistente do PostgreSQL, portanto saldo e ledger são observados no mesmo instante lógico.
+`difference` é o saldo armazenado menos o saldo reconstruído.
 
-Reporte divergências na resposta, nos logs e em uma métrica. A reconciliação não deve alterar o saldo.
+Reporte divergências na resposta, nos logs e na métrica
+`wallet_reconciliation_divergences_total`, exposta em `GET /metrics`. A reconciliação não altera
+o saldo.
 
 ### Health checks públicos
 
 ```http
 GET /health/live
 GET /health/ready
+GET /metrics
 ```
 
 Liveness do processo e readiness de PostgreSQL e SQS.

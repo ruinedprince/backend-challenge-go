@@ -2,7 +2,9 @@ package core
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -25,6 +27,19 @@ type LedgerView struct {
 	BalanceBefore domain.Money
 	BalanceAfter  domain.Money
 	CreatedAt     time.Time
+	entryID       string
+}
+
+type LedgerPage struct {
+	Entries    []LedgerView
+	NextCursor string
+}
+
+var ErrInvalidLedgerCursor = errors.New("invalid ledger cursor")
+
+type ledgerCursor struct {
+	CreatedAt time.Time `json:"createdAt"`
+	EntryID   string    `json:"entryId"`
 }
 
 func (p *Processor) OpenWallet(ctx context.Context, providerID, playerID string, initial domain.Money) (WalletView, error) {
@@ -80,6 +95,14 @@ func (p *Processor) FindWalletInternal(ctx context.Context, walletID string) (Wa
 }
 
 func (p *Processor) findWallet(ctx context.Context, walletID, providerID string) (WalletView, error) {
+	return findWallet(ctx, p.pool, walletID, providerID)
+}
+
+type rowQuerier interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func findWallet(ctx context.Context, queryer rowQuerier, walletID, providerID string) (WalletView, error) {
 	var view WalletView
 	var minor int64
 	var currency string
@@ -93,7 +116,7 @@ func (p *Processor) findWallet(ctx context.Context, walletID, providerID string)
 	} else {
 		query += ` WHERE w.id=$1`
 	}
-	err := p.pool.QueryRow(ctx, query, args...).Scan(&view.ID, &view.PlayerID, &minor, &currency, &view.Version)
+	err := queryer.QueryRow(ctx, query, args...).Scan(&view.ID, &view.PlayerID, &minor, &currency, &view.Version)
 	if err != nil {
 		return WalletView{}, err
 	}
@@ -105,20 +128,24 @@ func (p *Processor) findWallet(ctx context.Context, walletID, providerID string)
 	return view, nil
 }
 
-func (p *Processor) ListLedger(ctx context.Context, providerID, walletID string, limit int) ([]LedgerView, error) {
-	return p.listLedger(ctx, walletID, providerID, limit)
+func (p *Processor) ListLedger(ctx context.Context, providerID, walletID, cursor string, limit int) (LedgerPage, error) {
+	return p.listLedger(ctx, walletID, providerID, cursor, limit)
 }
 
-func (p *Processor) ListLedgerInternal(ctx context.Context, walletID string, limit int) ([]LedgerView, error) {
-	return p.listLedger(ctx, walletID, "", limit)
+func (p *Processor) ListLedgerInternal(ctx context.Context, walletID, cursor string, limit int) (LedgerPage, error) {
+	return p.listLedger(ctx, walletID, "", cursor, limit)
 }
 
-func (p *Processor) listLedger(ctx context.Context, walletID, providerID string, limit int) ([]LedgerView, error) {
+func (p *Processor) listLedger(ctx context.Context, walletID, providerID, cursor string, limit int) (LedgerPage, error) {
 	if limit < 1 || limit > 50 {
-		limit = 50
+		return LedgerPage{}, fmt.Errorf("%w: limit must be between 1 and 50", ErrInvalidLedgerCursor)
+	}
+	position, err := decodeLedgerCursor(cursor)
+	if err != nil {
+		return LedgerPage{}, err
 	}
 	query := `
-        SELECT e.transaction_id,e.direction,e.amount_minor_units,e.currency,e.balance_before_minor_units,e.balance_after_minor_units,e.created_at
+		SELECT e.id,e.transaction_id,e.direction,e.amount_minor_units,e.currency,e.balance_before_minor_units,e.balance_after_minor_units,e.created_at
 	        FROM wallet_ledger_entries e`
 	args := []any{walletID}
 	if providerID != "" {
@@ -127,27 +154,41 @@ func (p *Processor) listLedger(ctx context.Context, walletID, providerID string,
 	} else {
 		query += ` WHERE e.wallet_id=$1`
 	}
+	if position != nil {
+		query += ` AND (e.created_at,e.id) < ($` + fmt.Sprint(len(args)+1) + `,$` + fmt.Sprint(len(args)+2) + `)`
+		args = append(args, position.CreatedAt, position.EntryID)
+	}
 	query += ` ORDER BY e.created_at DESC,e.id DESC LIMIT $` + fmt.Sprint(len(args)+1)
 	args = append(args, limit)
 	rows, err := p.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, err
+		return LedgerPage{}, err
 	}
 	defer rows.Close()
-	var entries []LedgerView
+	var page LedgerPage
 	for rows.Next() {
 		var item LedgerView
 		var amount, before, after int64
 		var currency string
-		if err := rows.Scan(&item.TransactionID, &item.Direction, &amount, &currency, &before, &after, &item.CreatedAt); err != nil {
-			return nil, err
+		if err := rows.Scan(&item.entryID, &item.TransactionID, &item.Direction, &amount, &currency, &before, &after, &item.CreatedAt); err != nil {
+			return LedgerPage{}, err
 		}
 		item.Money, _ = domain.NewMoney(amount, currency)
 		item.BalanceBefore, _ = domain.NewMoney(before, currency)
 		item.BalanceAfter, _ = domain.NewMoney(after, currency)
-		entries = append(entries, item)
+		page.Entries = append(page.Entries, item)
 	}
-	return entries, rows.Err()
+	if err := rows.Err(); err != nil {
+		return LedgerPage{}, err
+	}
+	if len(page.Entries) == limit {
+		last := page.Entries[len(page.Entries)-1]
+		page.NextCursor, err = encodeLedgerCursor(ledgerCursor{CreatedAt: last.CreatedAt, EntryID: last.entryID})
+		if err != nil {
+			return LedgerPage{}, err
+		}
+	}
+	return page, nil
 }
 
 func (p *Processor) Reconcile(ctx context.Context, providerID, walletID string) (WalletView, domain.Money, int64, error) {
@@ -159,18 +200,52 @@ func (p *Processor) ReconcileInternal(ctx context.Context, walletID string) (Wal
 }
 
 func (p *Processor) reconcile(ctx context.Context, walletID, providerID string) (WalletView, domain.Money, int64, error) {
-	wallet, err := p.findWallet(ctx, walletID, providerID)
+	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return WalletView{}, domain.Money{}, 0, fmt.Errorf("begin reconciliation snapshot: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	wallet, err := findWallet(ctx, tx, walletID, providerID)
 	if err != nil {
 		return WalletView{}, domain.Money{}, 0, err
 	}
 	var calculated int64
 	var count int64
-	err = p.pool.QueryRow(ctx, `SELECT COALESCE(SUM(CASE WHEN direction='CREDIT' THEN amount_minor_units ELSE -amount_minor_units END),0),count(*) FROM wallet_ledger_entries WHERE wallet_id=$1`, walletID).Scan(&calculated, &count)
+	err = tx.QueryRow(ctx, `SELECT COALESCE(SUM(CASE WHEN direction='CREDIT' THEN amount_minor_units ELSE -amount_minor_units END),0),count(*) FROM wallet_ledger_entries WHERE wallet_id=$1`, walletID).Scan(&calculated, &count)
 	if err != nil {
 		return WalletView{}, domain.Money{}, 0, err
 	}
 	money, err := domain.NewMoney(calculated, wallet.Balance.Currency())
-	return wallet, money, count, err
+	if err != nil {
+		return WalletView{}, domain.Money{}, 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return WalletView{}, domain.Money{}, 0, fmt.Errorf("commit reconciliation snapshot: %w", err)
+	}
+	return wallet, money, count, nil
+}
+
+func encodeLedgerCursor(cursor ledgerCursor) (string, error) {
+	payload, err := json.Marshal(cursor)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(payload), nil
+}
+
+func decodeLedgerCursor(encoded string) (*ledgerCursor, error) {
+	if encoded == "" {
+		return nil, nil
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, fmt.Errorf("%w: malformed encoding", ErrInvalidLedgerCursor)
+	}
+	var cursor ledgerCursor
+	if err := json.Unmarshal(payload, &cursor); err != nil || cursor.CreatedAt.IsZero() || cursor.EntryID == "" {
+		return nil, fmt.Errorf("%w: malformed position", ErrInvalidLedgerCursor)
+	}
+	return &cursor, nil
 }
 
 func insertOpeningOutbox(ctx context.Context, tx pgx.Tx, transactionID, walletID, playerID, providerID string, initial domain.Money, now time.Time) error {

@@ -123,8 +123,8 @@ publishers concorrentes da outbox.
 
 ## Limitações conhecidas e evolução de produção
 
-- A listagem do ledger é limitada aos 50 registros mais recentes; paginação opaca não foi incluída.
-- Métricas e tracing distribuído não foram implementados; há logs JSON estruturados.
+- A métrica `wallet_reconciliation_divergences_total` é exposta em `GET /metrics`; métricas
+  operacionais mais amplas e tracing distribuído permanecem como evolução de produção.
 - A entrega de eventos é at-least-once. Consumidores de `wager-events.fifo` devem deduplicar por
   `eventId`, que permanece estável em republicações.
 - Este ambiente local usa três portas para tornar cada instância visível ao roteiro. Um
