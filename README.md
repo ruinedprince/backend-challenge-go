@@ -508,6 +508,16 @@ operações financeiras do provedor; o segundo é a identidade interna para aber
 carteiras. Ambos existem apenas para o ambiente local. As políticas SQS de referência para uma
 implantação AWS estão em `deploy/iam/`.
 
+### Limite intencional da demonstração local de IAM
+
+As políticas IAM de menor privilégio para produtor de transações, worker da aplicação e operador
+da DLQ estão versionadas em `deploy/iam/` e devem ser associadas às respectivas roles em AWS. O
+LocalStack Community escolhido para manter o Compose gratuito e reproduzível exercita as filas,
+FIFO, redrive e DLQ, mas não avalia policies IAM; assim, uma credencial sem permissão não recebe
+`AccessDenied` nesse ambiente. A comprovação dessa negação fica para uma conta AWS sandbox ou
+uma edição do LocalStack com IAM enforcement. Essa limitação não substitui as validações de domínio
+feitas pelo consumidor SQS.
+
 O roteiro completo, incluindo token OAuth, abertura de carteira, aposta, replay e
 reconciliação, está em [DEMO.md](DEMO.md). Para encerrar o ambiente, execute
 `docker compose down`.

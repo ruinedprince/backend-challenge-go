@@ -137,9 +137,12 @@ uma implantação AWS estão versionadas em `deploy/iam/`: o produtor externo s�
 falhas. Antes de aplicar em AWS, substitua `<region>` e `<account-id>` pelos valores reais e
 associe cada política à role correspondente.
 
-O LocalStack local usa a credencial pública de desenvolvimento `test` e não simula IAM neste
-Compose. Essa simplificação não deve ser levada para produção: em AWS as roles e políticas
-versionadas acima são o limite de acesso ao broker.
+O LocalStack Community local usa a credencial pública de desenvolvimento `test` e não avalia IAM
+neste Compose. A escolha mantém a demonstração gratuita e reproduzível, mas não permite provar
+localmente um `AccessDenied` para uma credencial sem permissão. Essa simplificação não deve ser
+levada para produção: em AWS as roles e políticas versionadas acima são o limite de acesso ao
+broker; essa negação também pode ser validada em uma conta AWS sandbox ou em uma edição do
+LocalStack com IAM enforcement.
 
 ## Evoluções fora do escopo
 
