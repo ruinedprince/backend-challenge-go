@@ -8,9 +8,21 @@ Este roteiro leva menos de cinco minutos e usa somente os serviços do Compose l
 docker compose up -d --build
 docker compose --profile tools run --rm migrate -path /migrations -database "postgres://challenge:challenge@postgres:5432/challenge?sslmode=disable" up
 Invoke-RestMethod http://localhost:8080/health/ready
+Invoke-RestMethod http://localhost:8082/health/ready
+Invoke-RestMethod http://localhost:8083/health/ready
 ```
 
-O último comando deve devolver `status: ready`.
+Os três comandos devem devolver `status: ready`. O Compose inicia três cópias idênticas da API:
+
+| Serviço | Porta local | Papel na demonstração |
+| --- | --- | --- |
+| `api-a` | `8080` | Primeira instância |
+| `api-b` | `8082` | Segunda instância |
+| `api-c` | `8083` | Terceira instância |
+
+Elas têm memória e conexões próprias, mas usam o mesmo PostgreSQL, Keycloak e LocalStack. As
+portas distintas existem apenas no computador local para o roteiro enviar uma requisição para
+uma instância escolhida. Não representam três APIs diferentes.
 
 ## 2. Obter o token do provedor
 
@@ -65,7 +77,32 @@ chegou. A resposta fica em `PENDING_REFERENCE`. Quando a aposta referenciada é 
 resolvedor durável a conclui; se ela nunca chegar, após cinco tentativas a operação vira
 `REJECTED` com `REFERENCE_NOT_FOUND`.
 
-## 5. Evidências automatizadas
+## 5. Demonstração de múltiplas instâncias
+
+Com Docker Desktop e PowerShell, execute a partir da raiz do repositório:
+
+```powershell
+pwsh -File .\scripts\demo-multiple-instances.ps1
+```
+
+O script sobe o ambiente, aplica migrations, espera as três APIs e executa duas provas reais por
+HTTP:
+
+1. Envia duas apostas diferentes de `80.00` para `api-a` e `api-b`, ao mesmo tempo, sobre uma
+   carteira com `100.00`. Consulta o resultado por `api-c`: uma aposta é processada, a outra é
+   rejeitada, o saldo termina em `20.00` e há apenas um débito no ledger.
+2. Envia uma aposta de `25.00` para cada uma de três carteiras diferentes, em paralelo, por
+   `api-a`, `api-b` e `api-c`. As três devem ser processadas e cada carteira termina em `75.00`.
+3. Envia 50 cópias da mesma aposta de `25.00`, em rodízio entre `api-a`, `api-b` e `api-c`.
+   Confirma saldo final de `75.00`, um único débito e 49 replays idempotentes.
+
+Ao terminar, os containers continuam ativos para inspeção. Para encerrá-los:
+
+```powershell
+docker compose down
+```
+
+## 6. Evidências automatizadas
 
 ```powershell
 make verify
@@ -75,9 +112,14 @@ Esse comando roda testes unitários, detector de corrida, análise estática e i
 PostgreSQL/LocalStack reais. A integração cobre disputa de saldo, 50 replays paralelos,
 redelivery da inbox, referências pendentes/expiradas e três publishers concorrentes da outbox.
 
-## Limitações conhecidas
+## Limitações conhecidas e evolução de produção
 
 - A listagem do ledger é limitada aos 50 registros mais recentes; paginação opaca não foi incluída.
 - Métricas e tracing distribuído não foram implementados; há logs JSON estruturados.
 - A entrega de eventos é at-least-once. Consumidores de `wager-events.fifo` devem deduplicar por
   `eventId`, que permanece estável em republicações.
+- Este ambiente local usa três portas para tornar cada instância visível ao roteiro. Um
+  balanceador de carga e autoscaling não são requisitos do desafio e não foram implementados.
+  Caso o sistema evolua para produção, um orquestrador (por exemplo, Kubernetes ou ECS) e um
+  balanceador poderiam manter e distribuir instâncias conforme a demanda, sem alterar a regra
+  financeira que permanece no PostgreSQL.

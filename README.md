@@ -486,9 +486,24 @@ docker compose --profile tools run --rm migrate \
 curl http://localhost:8080/health/ready
 ```
 
-O Keycloak é exposto em `http://localhost:8081`, a API em `http://localhost:8080`
-e o LocalStack em `http://localhost:4566`. O realm importado tem o cliente de demonstração
-`provider-a`, com secret `provider-a-secret`; ele existe apenas para o ambiente local.
+O Keycloak é exposto em `http://localhost:8081`, o LocalStack em `http://localhost:4566` e o
+Compose inicia três instâncias da mesma API em `http://localhost:8080`,
+`http://localhost:8082` e `http://localhost:8083`. Todas compartilham PostgreSQL, Keycloak e
+LocalStack, mas têm processos, memória e conexões próprios. As três portas são uma conveniência
+da demonstração local; não são APIs distintas.
+
+Para reproduzir a demonstração de concorrência entre as três instâncias:
+
+```powershell
+pwsh -File .\scripts\demo-multiple-instances.ps1
+```
+
+O roteiro e os resultados esperados estão detalhados em [`DEMO.md`](DEMO.md). Balanceador de
+carga e autoscaling não são requisitos do desafio e permanecem explicitamente fora deste
+ambiente local; são evoluções de infraestrutura para uma futura operação em produção.
+
+O realm importado tem o cliente de demonstração `provider-a`, com secret
+`provider-a-secret`; ele existe apenas para o ambiente local.
 
 O roteiro completo, incluindo token OAuth, abertura de carteira, aposta, replay e
 reconciliação, está em [DEMO.md](DEMO.md). Para encerrar o ambiente, execute

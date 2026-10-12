@@ -22,6 +22,13 @@ O Compose usa PostgreSQL, Keycloak e LocalStack. O script do LocalStack cria
 `wager-transactions.fifo`, sua DLQ com redrive após cinco recebimentos e a fila de saída
 `wager-events.fifo`. O realm do Keycloak é importado automaticamente na inicialização.
 
+Para demonstrar a exigência de concorrência, o Compose também inicia `api-a`, `api-b` e `api-c`.
+São três processos idênticos da aplicação, cada qual com memória e pool de conexões próprios,
+compartilhando os mesmos serviços de infraestrutura. As portas locais `8080`, `8082` e `8083`
+permitem que o roteiro automatizado direcione chamadas para uma instância específica. Isso não é
+um balanceador de carga nem autoscaling: ambos estão fora do escopo do desafio e seriam uma
+responsabilidade da infraestrutura em uma implantação de produção.
+
 ## Migrations
 
 As migrations são aplicadas pelo container `migrate` via `make migrate-up` e revertidas
