@@ -30,10 +30,12 @@ var Module = fx.Module("application",
 	fx.Provide(NewReferenceResolver),
 	fx.Provide(NewHTTPServer),
 	fx.Invoke(RegisterDependencies),
-	fx.Invoke(RegisterHTTPServer),
 	fx.Invoke(RegisterSQSConsumer),
 	fx.Invoke(RegisterOutboxPublisher),
 	fx.Invoke(RegisterReferenceResolver),
+	// Fx stops lifecycle hooks in reverse order. Registering HTTP last makes it
+	// the first component to stop accepting new requests during shutdown.
+	fx.Invoke(RegisterHTTPServer),
 )
 
 func newOIDCVerifier(config Config) *auth.Verifier {
