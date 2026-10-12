@@ -126,6 +126,9 @@ duplicar débito, referências pendentes/expiradas e três publishers concorrent
 - `GET /metrics` expõe métricas compatíveis com Prometheus para resultados, duplicatas, retries,
   DLQ, conflitos, latência, atraso da outbox e divergências. Um servidor Prometheus, dashboards e
   tracing distribuído permanecem como evolução de produção.
+- Cada réplica local escreve logs JSON separadamente em seu `stdout`. Em produção escalável, um
+  coletor central (como CloudWatch, Loki ou ELK) deve agregá-los com metadados da instância; sem
+  isso, rastrear uma operação entre réplicas se torna impraticável.
 - A entrega de eventos é at-least-once. Consumidores de `wager-events.fifo` devem deduplicar por
   `eventId`, que permanece estável em republicações.
 - Este ambiente local usa três portas para tornar cada instância visível ao roteiro. Um

@@ -176,6 +176,13 @@ retries de SQS/outbox, entregas destinadas à DLQ, conflitos, latência, atraso 
 publicação da outbox e divergências de reconciliação. Não há um servidor Prometheus acoplado ao
 desafio: um coletor externo pode consultar esse endpoint. `GET /health/live` confirma que o
 processo HTTP está ativo; `GET /health/ready` também confirma PostgreSQL e SQS.
+
+No Compose local, cada réplica escreve seu JSON em `stdout` e o Docker o mantém por container.
+Isso torna a origem visível no roteiro, mas não é centralização. Em uma implantação escalável,
+um coletor externo (por exemplo, CloudWatch, Loki ou ELK) deve reunir os fluxos de todas as
+réplicas e anexar metadados da instância. Sem isso, investigar um mesmo `transactionId` exigiria
+procurar manualmente em processos diferentes, algo que se torna impraticável conforme as APIs
+escalam. Os identificadores estruturados já emitidos são o vínculo para essa coleta futura.
 ## Consumo SQS e inbox
 
 O consumidor faz long polling de `wager-transactions.fifo`. Para cada envelope, calcula o
